@@ -5,31 +5,39 @@ from docx import Document
 def parse_text_logic(text):
     """Универсальная логика: превращает текст с ++++ и ==== в список словарей"""
     questions = []
-    # Предварительная очистка всего текста от лишних пробелов
+    # Очистка текста от лишних табуляций и двойных пробелов
     text = re.sub(r'[ \t]+', ' ', text)
+    # Разбиваем на блоки по ++++
     blocks = re.split(r'\+{4,}', text)
     
     BAD_START_WORDS = ["группа", "members", "преподаватель", "студент", "фио", "результаты", "дата", "fanidan"]
 
     for block in blocks:
-        if not block.strip(): continue
+        if not block.strip(): 
+            continue
+        
+        # Разбиваем блок на вопрос и варианты по ====
         parts = re.split(r'={4,}', block)
-        if len(parts) < 2: continue
+        if len(parts) < 2: 
+            continue
 
-        # --- ИСПРАВЛЕНИЕ ТУТ: ЧИСТИМ ВОПРОС ---
+        # --- УСИЛЕННАЯ ОЧИСТКА ВОПРОСА ---
         raw_question_content = parts[0].strip().split('\n')
-        # Берем последнюю строку блока (где сам вопрос)
+        # Берем последнюю непустую строку перед вариантами
         question_text = raw_question_content[-1].strip()
         
-        # 1. Удаляем цифры в начале (1., 212. и т.д.)
+        # 1. Удаляем "Вопрос №1", "Question 5" и т.д. (регистронезависимо)
+        question_text = re.sub(r'(?i)вопрос\s*(№|n|#)?\s*\d*', '', question_text).strip()
+        # 2. Удаляем цифры в начале (1., 212. и т.д.)
         question_text = re.sub(r'^\d+[\s.)]+', '', question_text).strip()
-        # 2. Удаляем случайные решетки, которые ИИ мог поставить в начало вопроса
+        # 3. Удаляем любые решетки, которые ИИ мог оставить в вопросе
         question_text = question_text.replace('#', '').strip() 
         # --------------------------------------
 
-        if len(question_text) < 5: continue
+        if len(question_text) < 5: 
+            continue
         
-        # Проверка на "мусорные" слова
+        # Проверка на технический "мусор" в начале
         first_word = question_text.lower().split()[0] if question_text else ""
         if first_word in BAD_START_WORDS and len(question_text) < 40:
             continue
@@ -39,20 +47,18 @@ def parse_text_logic(text):
         
         for raw_opt in parts[1:]:
             opt_lines = [l.strip() for l in raw_opt.strip().split('\n') if l.strip()]
-            if not opt_lines: continue
+            if not opt_lines: 
+                continue
             
-            # Берем первую строку варианта
             clean_opt = opt_lines[0]
-            
-            if len(options) >= 10: break
+            if len(options) >= 10: 
+                break
 
             # Если вариант начинается с # — это правильный ответ
             if clean_opt.startswith("#"):
                 correct_id = len(options)
-                # Убираем # и чистим пробелы
                 options.append(clean_opt.replace("#", "").strip()[:100])
             else:
-                # Обычный вариант — тоже чистим на всякий случай от случайных #
                 options.append(clean_opt.replace("#", "").strip()[:100])
 
         if len(options) >= 2:
@@ -62,24 +68,25 @@ def parse_text_logic(text):
                 "correct_option_id": correct_id
             })
     return questions
-# --- ФУНКЦИИ ИЗВЛЕЧЕНИЯ ТЕКСТА (Для ИИ) ---
 
-def get_raw_text_from_docx(file_stream):
-    """Просто достает текст из DOCX для отправки в ИИ"""
+# --- ФУНКЦИИ ИЗВЛЕЧЕНИЯ ТЕКСТА (Для отправки в ИИ) ---
+
+def extract_text_from_docx(file_stream):
+    """Извлекает текст из DOCX"""
     doc = Document(file_stream)
     return "\n".join([p.text for p in doc.paragraphs])
 
-def get_raw_text_from_pdf(file_stream):
-    """Просто достает текст из PDF для отправки в ИИ"""
+def extract_text_from_pdf(file_stream):
+    """Извлекает текст из PDF"""
     doc = fitz.open(stream=file_stream, filetype="pdf")
     return "".join([page.get_text() for page in doc])
 
-# --- ФУНКЦИИ ПАРСИНГА (Для прямой загрузки) ---
+# --- ФУНКЦИИ ПАРСИНГА (Для прямой загрузки без ИИ) ---
 
 def parse_pdf_from_memory(file_stream):
-    text = get_raw_text_from_pdf(file_stream)
+    text = extract_text_from_pdf(file_stream)
     return parse_text_logic(text)
 
 def parse_docx_from_memory(file_stream):
-    text = get_raw_text_from_docx(file_stream)
+    text = extract_text_from_docx(file_stream)
     return parse_text_logic(text)
