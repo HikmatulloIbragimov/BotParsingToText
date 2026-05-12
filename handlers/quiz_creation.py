@@ -9,7 +9,13 @@ from utils.db_api import db # Твоя база данных
 
 # Наши инструменты
 from utils.db_api import db
-from utils.parsers import get_raw_text_from_docx, get_raw_text_from_pdf, parse_text_logic
+from utils.parsers import (
+    extract_text_from_docx as get_raw_text_from_docx, 
+    extract_text_from_pdf as get_raw_text_from_pdf, 
+    parse_text_logic,
+    parse_docx_from_memory,
+    parse_pdf_from_memory
+)
 from utils.states import QuizCreation
 from keyboards.keyboards import (
     get_creation_method_kb, 
