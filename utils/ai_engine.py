@@ -45,7 +45,7 @@ async def generate_quiz_with_ai(user_text):
     try:
         completion = await client.chat.completions.create(
             # Используем актуальную модель или auto
-            model="google/gemini-2.0-flash-exp", 
+            model="google/auto", 
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Внимательно изучи этот текст и сформируй из него тест по правилам:\n\n{user_text}"}
