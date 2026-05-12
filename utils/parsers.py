@@ -5,6 +5,7 @@ from docx import Document
 def parse_text_logic(text):
     """Универсальная логика: превращает текст с ++++ и ==== в список словарей"""
     questions = []
+    # Предварительная очистка всего текста от лишних пробелов
     text = re.sub(r'[ \t]+', ' ', text)
     blocks = re.split(r'\+{4,}', text)
     
@@ -15,12 +16,20 @@ def parse_text_logic(text):
         parts = re.split(r'={4,}', block)
         if len(parts) < 2: continue
 
+        # --- ИСПРАВЛЕНИЕ ТУТ: ЧИСТИМ ВОПРОС ---
         raw_question_content = parts[0].strip().split('\n')
+        # Берем последнюю строку блока (где сам вопрос)
         question_text = raw_question_content[-1].strip()
+        
+        # 1. Удаляем цифры в начале (1., 212. и т.д.)
         question_text = re.sub(r'^\d+[\s.)]+', '', question_text).strip()
+        # 2. Удаляем случайные решетки, которые ИИ мог поставить в начало вопроса
+        question_text = question_text.replace('#', '').strip() 
+        # --------------------------------------
 
         if len(question_text) < 5: continue
         
+        # Проверка на "мусорные" слова
         first_word = question_text.lower().split()[0] if question_text else ""
         if first_word in BAD_START_WORDS and len(question_text) < 40:
             continue
@@ -31,15 +40,20 @@ def parse_text_logic(text):
         for raw_opt in parts[1:]:
             opt_lines = [l.strip() for l in raw_opt.strip().split('\n') if l.strip()]
             if not opt_lines: continue
+            
+            # Берем первую строку варианта
             clean_opt = opt_lines[0]
             
             if len(options) >= 10: break
 
+            # Если вариант начинается с # — это правильный ответ
             if clean_opt.startswith("#"):
                 correct_id = len(options)
+                # Убираем # и чистим пробелы
                 options.append(clean_opt.replace("#", "").strip()[:100])
             else:
-                options.append(clean_opt[:100])
+                # Обычный вариант — тоже чистим на всякий случай от случайных #
+                options.append(clean_opt.replace("#", "").strip()[:100])
 
         if len(options) >= 2:
             questions.append({
@@ -48,7 +62,6 @@ def parse_text_logic(text):
                 "correct_option_id": correct_id
             })
     return questions
-
 # --- ФУНКЦИИ ИЗВЛЕЧЕНИЯ ТЕКСТА (Для ИИ) ---
 
 def get_raw_text_from_docx(file_stream):
