@@ -43,15 +43,22 @@ async def generate_quiz_with_ai(user_text):
     )
 
     try:
+        # 1. ОБРЕЗАЕМ ТЕКСТ. Это критично для избежания ошибки 400!
+        # Возьмем первые 10 000 символов - этого хватит на 5-10 страниц.
+        safe_text = user_text[:10000] 
+
         completion = await client.chat.completions.create(
-            # Используем актуальную модель или auto
-            model="google/auto", 
+            # ИСПОЛЬЗУЙ ТОЛЬКО ЭТИ ВАРИАНТЫ:
+            model="openrouter/auto", # Работает всегда
+            # ИЛИ конкретную модель: "google/gemini-flash-1.5"
+            
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Внимательно изучи этот текст и сформируй из него тест по правилам:\n\n{user_text}"}
+                {"role": "user", "content": f"Сделай тест из этого текста:\n\n{safe_text}"}
             ],
-            temperature=0.2 # Еще ниже температура для максимальной стабильности
+            temperature=0.3 # Стандартное значение
         )
         return completion.choices[0].message.content
     except Exception as e:
-        return f"ERROR_AI: {e}"
+        # Если будет ошибка, мы хотя бы увидим её текст в боте
+        return f"ERROR_AI: {str(e)}"
