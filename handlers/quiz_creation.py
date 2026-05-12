@@ -4,14 +4,15 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
+from utils.ai_engine import generate_quiz_with_ai
+from utils.db_api import db # Твоя база данных
 
 # Наши инструменты
 from utils.db_api import db
-from utils.parsers import parse_pdf_from_memory, parse_docx_from_memory
+from utils.parsers import get_raw_text_from_docx, get_raw_text_from_pdf, parse_text_logic
 from utils.states import QuizCreation
 from keyboards.keyboards import (
     get_creation_method_kb, 
-    get_manual_creation_kb, 
     get_file_action_menu
 )
 
@@ -47,39 +48,47 @@ async def handle_document(message: Message, state: FSMContext):
     data = await state.get_data()
     pack_name = data.get("quiz_name") or message.document.file_name
 
-    await message.answer("⏳ Анализирую структуру файла...")
+    status_msg = await message.answer("⏳ Анализирую файл...")
     
     try:
         file_io = io.BytesIO()
         file = await message.bot.get_file(message.document.file_id)
         await message.bot.download_file(file.file_path, file_io)
+        
+        # --- ШАГ 1: Извлекаем сырой текст ---
         file_io.seek(0)
+        if file_name.endswith('.docx'):
+            raw_text = get_raw_text_from_docx(file_io)
+        else:
+            raw_text = get_raw_text_from_pdf(file_io)
 
-        # Здесь вызывается твоя логика с "Интеллектуальным ситом"
-        questions = parse_docx_from_memory(file_io) if file_name.endswith('.docx') else parse_pdf_from_memory(file_io)
+        # --- ШАГ 2: Пробуем найти готовую структуру ---
+        questions = parse_text_logic(raw_text)
 
-        # --- ВОТ ЭТОТ УЧАСТОК МЫ УСИЛИЛИ ---
+        # --- ШАГ 3: Если структуры нет — зовем ИИ ---
         if not questions:
-            return await message.answer(
-                "❌ **Файл отклонен!**\n\n"
-                "Бот не смог распознать тест. Проверь следующее:\n"
-                "1. Блоки разделены `++++`.\n"
-                "2. В тесте должно быть **минимум 3 вопроса**.\n"
-                "3. У каждого вопроса должно быть **минимум 2 варианта**.\n"
-                "4. Правильный ответ помечен символом `#`.\n\n"
-                "Попробуй исправить файл и скинуть его еще раз."
-            )
-        # ----------------------------------
+            await status_msg.edit_text("🤖 Готовых ответов не нашли. Работает ИИ (10-15 сек)...")
+            
+            # Обрезаем текст для безопасности (лимит 10к символов)
+            safe_text = raw_text[:10000]
+            
+            ai_output = await generate_quiz_with_ai(safe_text)
+            questions = parse_text_logic(ai_output)
 
-        # Если дошли сюда — значит файл качественный и его можно в БД
+        # --- ШАГ 4: Проверка и сохранение ---
+        if not questions:
+            await status_msg.delete()
+            return await message.answer("❌ Не удалось создать тест. Попробуй другой файл.")
+
         pack = await db.save_quiz_to_db(user, pack_name, questions)
         
+        await status_msg.delete()
         await message.answer(
-            f"✅ Пакет «{pack.name}» успешно создан!\n📊 Проверено и загружено вопросов: {len(questions)}",
+            f"✅ Пакет «{pack.name}» создан!\n📊 Вопросов: {len(questions)}",
             reply_markup=get_file_action_menu()
         )
         await state.clear()
 
     except Exception as e:
-        logging.error(f"Ошибка парсинга: {e}")
-        await message.answer("❌ Произошла ошибка при обработке. Попробуй другой файл.")
+        logging.error(f"Ошибка: {e}")
+        await message.answer("❌ Произошла ошибка. Проверь логи бота.")
