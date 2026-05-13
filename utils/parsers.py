@@ -3,58 +3,55 @@ import re
 from docx import Document
 
 def parse_text_logic(text):
-    """Универсальная логика: превращает текст с ++++ и ==== в список словарей"""
     questions = []
-    # Очистка текста от лишних табуляций и двойных пробелов
+    # Предварительная чистка: убираем лишние пробелы в строках
     text = re.sub(r'[ \t]+', ' ', text)
-    # Разбиваем на блоки по ++++
-    blocks = re.split(r'\+{4,}', text)
     
-    BAD_START_WORDS = ["группа", "members", "преподаватель", "студент", "фио", "результаты", "дата", "fanidan"]
+    # Разбиваем на блоки по ++++ (разделитель вопросов)
+    # Регулярка \s*\+{4,}\s* найдет плюсики, даже если вокруг них пробелы или переносы
+    blocks = re.split(r'\s*\+{4,}\s*', text)
+    
+    BAD_START_WORDS = ["группа", "members", "преподаватель", "студент", "фио", "результаты", "дата", "fanidan", "текст", "задание"]
 
     for block in blocks:
-        if not block.strip(): 
-            continue
+        block = block.strip()
+        if not block: continue
         
         # Разбиваем блок на вопрос и варианты по ====
-        parts = re.split(r'={4,}', block)
-        if len(parts) < 2: 
-            continue
+        parts = re.split(r'\s*={4,}\s*', block)
+        if len(parts) < 2: continue
 
-        # --- УСИЛЕННАЯ ОЧИСТКА ВОПРОСА ---
-        raw_question_content = parts[0].strip().split('\n')
-        # Берем последнюю непустую строку перед вариантами
-        question_text = raw_question_content[-1].strip()
+        # --- ЧИСТКА ВОПРОСА (parts[0]) ---
+        # Мы берем всё, что до первых ==== и чистим от лишних строк
+        q_lines = [l.strip() for l in parts[0].split('\n') if l.strip()]
+        if not q_lines: continue
         
-        # 1. Удаляем "Вопрос №1", "Question 5" и т.д. (регистронезависимо)
+        # Обычно ИИ пишет вопрос в самом конце вводного блока
+        question_text = q_lines[-1] 
+        
+        # Удаляем "Вопрос №...", цифры в начале и случайные решетки
         question_text = re.sub(r'(?i)вопрос\s*(№|n|#)?\s*\d*', '', question_text).strip()
-        # 2. Удаляем цифры в начале (1., 212. и т.д.)
         question_text = re.sub(r'^\d+[\s.)]+', '', question_text).strip()
-        # 3. Удаляем любые решетки, которые ИИ мог оставить в вопросе
-        question_text = question_text.replace('#', '').strip() 
-        # --------------------------------------
+        question_text = question_text.replace('#', '').strip()
 
-        if len(question_text) < 5: 
-            continue
-        
-        # Проверка на технический "мусор" в начале
+        # Проверка на длину и стоп-слова
+        if len(question_text) < 5: continue
         first_word = question_text.lower().split()[0] if question_text else ""
         if first_word in BAD_START_WORDS and len(question_text) < 40:
             continue
 
+        # --- ЧИСТКА ВАРИАНТОВ (parts[1:]) ---
         options = []
         correct_id = 0
         
         for raw_opt in parts[1:]:
             opt_lines = [l.strip() for l in raw_opt.strip().split('\n') if l.strip()]
-            if not opt_lines: 
-                continue
+            if not opt_lines: continue
             
-            clean_opt = opt_lines[0]
-            if len(options) >= 10: 
-                break
+            clean_opt = opt_lines[0] # Берем только первую строку варианта
+            
+            if len(options) >= 10: break # Ограничение Telegram на 10 вариантов
 
-            # Если вариант начинается с # — это правильный ответ
             if clean_opt.startswith("#"):
                 correct_id = len(options)
                 options.append(clean_opt.replace("#", "").strip()[:100])
@@ -63,12 +60,11 @@ def parse_text_logic(text):
 
         if len(options) >= 2:
             questions.append({
-                "question": question_text[:255],
+                "question": question_text[:255], # Лимит Telegram на длину вопроса
                 "options": options,
                 "correct_option_id": correct_id
             })
     return questions
-
 # --- ФУНКЦИИ ИЗВЛЕЧЕНИЯ ТЕКСТА (Для отправки в ИИ) ---
 
 def extract_text_from_docx(file_stream):
