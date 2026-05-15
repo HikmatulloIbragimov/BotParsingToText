@@ -4,7 +4,8 @@ import io
 import logging
 import django
 from dotenv import load_dotenv
-
+from keyboards.keyboards import get_stop_confirm_kb
+from aiogram import Router
 # 1. ПЕРВЫМ ДЕЛОМ - Настройка Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
@@ -26,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 user_sessions = {}
-
+router = Router()
 # --- ХЕНДЛЕРЫ ---
 
 @dp.message(CommandStart())
@@ -51,11 +52,14 @@ async def help_handler(message: Message):
         parse_mode="Markdown"
     )
 
-@dp.message(Command("stop"))
-async def stop_test(message: Message):
-    user_sessions[message.from_user.id] = False
-    await message.answer("🛑 Тест будет остановлен после текущего вопроса.")
-
+@router.message(Command("stop"))
+async def cmd_stop_ask(message: Message):
+    await message.answer(
+        "⚠️ **Вы уверены, что хотите прервать тест?**\n"
+        "Ваш текущий прогресс не будет сохранен.",
+        reply_markup=get_stop_confirm_kb(),
+        parse_mode="Markdown"
+    )
 
 ### донат
 

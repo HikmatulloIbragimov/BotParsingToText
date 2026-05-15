@@ -128,11 +128,26 @@ async def handle_continue(callback: CallbackQuery):
     await callback.answer()
 
 @router.callback_query(F.data == "confirm_stop")
-async def handle_confirm_stop(callback: CallbackQuery):
-    # Здесь тоже передаем ID
+async def handle_confirm_stop(callback: CallbackQuery, state: FSMContext):
+    # 1. Закрываем сессию в базе
     await db.close_session(callback.from_user.id)
-    await callback.message.edit_text("🛑 Тест завершен. Возвращайся скорее!")
+    
+    # 2. ОЧИЩАЕМ СОСТОЯНИЕ (это самое главное, чтобы бот не "тупил")
+    await state.clear()
+    
+    # 3. Редактируем сообщение
+    await callback.message.edit_text(
+        "🏁 **Тест завершен.**\n"
+        "Возвращайся скорее, знания сами себя не проверят! 💪",
+        parse_mode="Markdown"
+    )
     await callback.answer()
+
+@router.callback_query(F.data == "continue_test")
+async def handle_continue_test(callback: CallbackQuery):
+    # Просто удаляем сообщение с вопросом "Вы уверены?"
+    await callback.message.delete()
+    await callback.answer("Продолжаем! 🚀")
 
 @router.poll_answer()
 async def handle_poll_answer(poll_answer: PollAnswer):

@@ -49,6 +49,15 @@ def get_stop_confirm_kb():
     builder.row(InlineKeyboardButton(text="🛑 Завершить и выйти", callback_data="confirm_stop"))
     return builder.as_markup()
 
+def get_stop_confirm_kb():
+    builder = InlineKeyboardBuilder()
+    # Ставим кнопки в один ряд для компактности
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="continue_test"),
+        InlineKeyboardButton(text="🛑 Выйти", callback_data="confirm_stop")
+    )
+    return builder.as_markup()
+
 def get_pack_menu_kb(pack_id):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Начать тест", callback_data=f"start_quiz_{pack_id}")],
