@@ -4,44 +4,52 @@ from docx import Document
 
 def parse_text_logic(text):
     questions = []
-    # Разбиваем текст на блоки по плюсикам или двойным переносам
-    raw_blocks = re.split(r'\+{2,}|\n\n', text)
     
     current_q = None
     current_options = []
     
+    # Разбиваем текст на строки и обрабатываем по одной
     for line in text.split('\n'):
         line = line.strip()
-        if not line or line.startswith('='): continue
+        # Игнорируем пустые строки и разделители ====
+        if not line or line.startswith('='): 
+            continue
         
-        # Если строка заканчивается на '?' или это длинное предложение без '#'
+        # ЛОГИКА ОПРЕДЕЛЕНИЯ ВОПРОСА
+        # Если строка заканчивается на '?' или она длинная и в ней нет '#'
         if ('?' in line or len(line) > 40) and '#' not in line:
-            # Если у нас уже был накоплен вопрос — сохраняем его
+            # Если до этого мы уже собрали вопрос и у него есть хотя бы 2 ответа — сохраняем
             if current_q and len(current_options) >= 2:
                 questions.append({
-                    "question": current_q[:255],
-                    "options": current_options[:10],
-                    "correct_option_id": 0
+                    "question": current_q[:255], # Лимит Telegram: 255 символов
+                    "options": current_options[:10], # Лимит Telegram: 10 вариантов
+                    "correct_option_id": 0 # В этой логике правильный всегда первый
                 })
             
-            # Начинаем новый вопрос
+            # Начинаем новый вопрос (чистим от цифр в начале: "1. Вопрос" -> "Вопрос")
             current_q = re.sub(r'^\d+[\s.)]+', '', line).replace('#', '').strip()
             current_options = []
             
-        # Если строка — это ответ (с решеткой или после вопроса)
+        # ЛОГИКА ОПРЕДЕЛЕНИЯ ВАРИАНТОВ ОТВЕТА
         elif current_q and len(current_options) < 10:
             is_correct = line.startswith('#')
-            clean_opt = line.replace('#', '').strip()
+            # КРИТИЧЕСКИЙ МОМЕНТ: Обрезаем до 100 символов
+            clean_opt = line.replace('#', '').strip()[:100] 
             
             if clean_opt:
                 if is_correct:
-                    current_options.insert(0, clean_opt) # Правильный всегда первый
+                    # Ставим правильный ответ на первое место (индекс 0)
+                    current_options.insert(0, clean_opt)
                 else:
                     current_options.append(clean_opt)
 
-    # Добавляем последний вопрос
+    # Не забываем добавить самый последний вопрос из файла
     if current_q and len(current_options) >= 2:
-        questions.append({"question": current_q[:255], "options": current_options, "correct_option_id": 0})
+        questions.append({
+            "question": current_q[:255], 
+            "options": current_options[:10], 
+            "correct_option_id": 0
+        })
         
     return questions
 
