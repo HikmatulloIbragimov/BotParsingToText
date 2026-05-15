@@ -82,12 +82,7 @@ async def handle_document(message: Message, state: FSMContext):
             safe_text = raw_text[:10000]
             
             ai_output = await generate_quiz_with_ai(safe_text)
-            
-            # Логирование для отладки
-            print("--- DEBUG AI OUTPUT ---")
-            print(ai_output)
-            print("-----------------------")
-            
+                     
             # Парсим то, что вернул ИИ
             questions = parse_text_logic(ai_output)
 
