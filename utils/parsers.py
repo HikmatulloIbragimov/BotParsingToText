@@ -1,55 +1,6 @@
-import fitz  # PyMuPDF
 import re
+import fitz
 from docx import Document
-
-def parse_text_logic(text):
-    questions = []
-    
-    # Разбиваем текст на блоки по разделителю +++++
-    # Если в файле нет +++++, будем делить по двойному переносу
-    blocks = re.split(r'\+{3,}|\n\n\n', text)
-    
-    for block in blocks:
-        # Убираем лишние пробелы и пустые строки внутри блока
-        lines = [line.strip() for line in block.split('\n') if line.strip()]
-        
-        if len(lines) < 2:
-            continue
-            
-        # ПЕРВАЯ СТРОКА — это всегда вопрос.
-        # Убираем нумерацию (типа 212.) и обрезаем до 255 символов (лимит TG)
-        question_text = re.sub(r'^\d+[\s.)]+', '', lines[0]).replace('#', '').strip()[:255]
-        
-        options = []
-        correct_id = 0
-        
-        # ОСТАЛЬНЫЕ СТРОКИ — это варианты
-        for raw_line in lines[1:]:
-            # Пропускаем технические разделители, если они попали в блок
-            if raw_line.startswith('='):
-                continue
-                
-            is_correct = raw_line.startswith('#')
-            # КРИТИЧНО: Обрезаем каждый вариант до 100 символов
-            clean_opt = raw_line.replace('#', '').strip()[:100]
-            
-            if clean_opt:
-                if is_correct:
-                    correct_id = len(options)
-                options.append(clean_opt)
-                
-            # В одном опросе Telegram может быть не более 10 вариантов
-            if len(options) >= 10:
-                break
-
-        if len(options) >= 2:
-            questions.append({
-                "question": question_text,
-                "options": options,
-                "correct_option_id": correct_id
-            })
-            
-    return questions
 
 def extract_text_from_docx(file_stream):
     """Извлекает текст из DOCX"""
@@ -61,12 +12,45 @@ def extract_text_from_pdf(file_stream):
     doc = fitz.open(stream=file_stream, filetype="pdf")
     return "".join([page.get_text() for page in doc])
 
-# --- ФУНКЦИИ ПАРСИНГА (Для прямой загрузки без ИИ) ---
+def parse_text_logic(text):
+    questions = []
+    # Делим на блоки по +++++ (как просим ИИ) или по тройному переносу
+    blocks = re.split(r'\+{3,}|\n\n\n', text)
+    
+    for block in blocks:
+        # Чистим блок от пустых строк
+        lines = [line.strip() for line in block.split('\n') if line.strip()]
+        
+        # КРИТИЧНО: Блок должен содержать минимум 1 вопрос и 2 ответа
+        # И в блоке ОБЯЗАТЕЛЬНО должен быть символ '#' (правильный ответ)
+        if len(lines) < 2 or '#' not in block:
+            continue
+            
+        # ПЕРВАЯ СТРОКА — Вопрос (чистим от цифр и режем до 255 символов)
+        question_text = re.sub(r'^\d+[\s.)]+', '', lines[0]).replace('#', '').strip()[:255]
+        
+        options = []
+        correct_id = 0
+        
+        # ОСТАЛЬНЫЕ СТРОКИ — Варианты
+        for raw_line in lines[1:]:
+            if raw_line.startswith('='): continue # Игнорим старые разделители
+                
+            is_correct = raw_line.startswith('#')
+            clean_opt = raw_line.replace('#', '').strip()[:100] # Режем до 100 символов (Лимит TG)
+            
+            if clean_opt:
+                if is_correct:
+                    correct_id = len(options)
+                options.append(clean_opt)
+            
+            if len(options) >= 10: break # Лимит TG: 10 вариантов
 
-def parse_pdf_from_memory(file_stream):
-    text = extract_text_from_pdf(file_stream)
-    return parse_text_logic(text)
-
-def parse_docx_from_memory(file_stream):
-    text = extract_text_from_docx(file_stream)
-    return parse_text_logic(text)
+        if len(options) >= 2:
+            questions.append({
+                "question": question_text,
+                "options": options,
+                "correct_option_id": correct_id
+            })
+            
+    return questions
