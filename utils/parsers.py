@@ -5,52 +5,50 @@ from docx import Document
 def parse_text_logic(text):
     questions = []
     
-    current_q = None
-    current_options = []
+    # Разбиваем текст на блоки по разделителю +++++
+    # Если в файле нет +++++, будем делить по двойному переносу
+    blocks = re.split(r'\+{3,}|\n\n\n', text)
     
-    # Разбиваем текст на строки и обрабатываем по одной
-    for line in text.split('\n'):
-        line = line.strip()
-        # Игнорируем пустые строки и разделители ====
-        if not line or line.startswith('='): 
-            continue
+    for block in blocks:
+        # Убираем лишние пробелы и пустые строки внутри блока
+        lines = [line.strip() for line in block.split('\n') if line.strip()]
         
-        # ЛОГИКА ОПРЕДЕЛЕНИЯ ВОПРОСА
-        # Если строка заканчивается на '?' или она длинная и в ней нет '#'
-        if ('?' in line or len(line) > 40) and '#' not in line:
-            # Если до этого мы уже собрали вопрос и у него есть хотя бы 2 ответа — сохраняем
-            if current_q and len(current_options) >= 2:
-                questions.append({
-                    "question": current_q[:255], # Лимит Telegram: 255 символов
-                    "options": current_options[:10], # Лимит Telegram: 10 вариантов
-                    "correct_option_id": 0 # В этой логике правильный всегда первый
-                })
+        if len(lines) < 2:
+            continue
             
-            # Начинаем новый вопрос (чистим от цифр в начале: "1. Вопрос" -> "Вопрос")
-            current_q = re.sub(r'^\d+[\s.)]+', '', line).replace('#', '').strip()
-            current_options = []
-            
-        # ЛОГИКА ОПРЕДЕЛЕНИЯ ВАРИАНТОВ ОТВЕТА
-        elif current_q and len(current_options) < 10:
-            is_correct = line.startswith('#')
-            # КРИТИЧЕСКИЙ МОМЕНТ: Обрезаем до 100 символов
-            clean_opt = line.replace('#', '').strip()[:100] 
+        # ПЕРВАЯ СТРОКА — это всегда вопрос.
+        # Убираем нумерацию (типа 212.) и обрезаем до 255 символов (лимит TG)
+        question_text = re.sub(r'^\d+[\s.)]+', '', lines[0]).replace('#', '').strip()[:255]
+        
+        options = []
+        correct_id = 0
+        
+        # ОСТАЛЬНЫЕ СТРОКИ — это варианты
+        for raw_line in lines[1:]:
+            # Пропускаем технические разделители, если они попали в блок
+            if raw_line.startswith('='):
+                continue
+                
+            is_correct = raw_line.startswith('#')
+            # КРИТИЧНО: Обрезаем каждый вариант до 100 символов
+            clean_opt = raw_line.replace('#', '').strip()[:100]
             
             if clean_opt:
                 if is_correct:
-                    # Ставим правильный ответ на первое место (индекс 0)
-                    current_options.insert(0, clean_opt)
-                else:
-                    current_options.append(clean_opt)
+                    correct_id = len(options)
+                options.append(clean_opt)
+                
+            # В одном опросе Telegram может быть не более 10 вариантов
+            if len(options) >= 10:
+                break
 
-    # Не забываем добавить самый последний вопрос из файла
-    if current_q and len(current_options) >= 2:
-        questions.append({
-            "question": current_q[:255], 
-            "options": current_options[:10], 
-            "correct_option_id": 0
-        })
-        
+        if len(options) >= 2:
+            questions.append({
+                "question": question_text,
+                "options": options,
+                "correct_option_id": correct_id
+            })
+            
     return questions
 
 def extract_text_from_docx(file_stream):
