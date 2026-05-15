@@ -4,47 +4,34 @@ from docx import Document
 
 def parse_text_logic(text):
     questions = []
-    # Разбиваем текст на блоки по плюсикам или двойным переносам
-    raw_blocks = re.split(r'\+{2,}|\n\n', text)
+    # Разбиваем по блокам +++++
+    blocks = re.split(r'\s*\+{3,}\s*', text)
     
-    current_q = None
-    current_options = []
-    
-    for line in text.split('\n'):
-        line = line.strip()
-        if not line or line.startswith('='): continue
+    for block in blocks:
+        lines = [l.strip() for l in block.split('\n') if l.strip()]
+        if len(lines) < 2: continue
         
-        # Если строка заканчивается на '?' или это длинное предложение без '#'
-        if ('?' in line or len(line) > 40) and '#' not in line:
-            # Если у нас уже был накоплен вопрос — сохраняем его
-            if current_q and len(current_options) >= 2:
-                questions.append({
-                    "question": current_q[:255],
-                    "options": current_options[:10],
-                    "correct_option_id": 0
-                })
-            
-            # Начинаем новый вопрос
-            current_q = re.sub(r'^\d+[\s.)]+', '', line).replace('#', '').strip()
-            current_options = []
-            
-        # Если строка — это ответ (с решеткой или после вопроса)
-        elif current_q and len(current_options) < 10:
-            is_correct = line.startswith('#')
-            clean_opt = line.replace('#', '').strip()
-            
-            if clean_opt:
-                if is_correct:
-                    current_options.insert(0, clean_opt) # Правильный всегда первый
-                else:
-                    current_options.append(clean_opt)
-
-    # Добавляем последний вопрос
-    if current_q and len(current_options) >= 2:
-        questions.append({"question": current_q[:255], "options": current_options, "correct_option_id": 0})
+        # Первая строка — всегда вопрос
+        q_text = re.sub(r'^\d+[\s.)]+', '', lines[0]).replace('#', '').strip()
         
+        options = []
+        correct_id = 0
+        
+        # Все остальные строки — варианты
+        for line in lines[1:]:
+            if line.startswith('#'):
+                correct_id = len(options)
+                options.append(line.replace('#', '').strip()[:100])
+            else:
+                options.append(line.strip()[:100])
+        
+        if len(options) >= 2:
+            questions.append({
+                "question": q_text[:255],
+                "options": options[:10],
+                "correct_option_id": correct_id
+            })
     return questions
-# --- ФУНКЦИИ ИЗВЛЕЧЕНИЯ ТЕКСТА (Для отправки в ИИ) ---
 
 def extract_text_from_docx(file_stream):
     """Извлекает текст из DOCX"""
