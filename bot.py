@@ -4,7 +4,7 @@ import io
 import logging
 import django
 from dotenv import load_dotenv
-from keyboards.keyboards import get_stop_confirm_kb
+from keyboards.keyboards import get_stop_confirm_kb, get_main_menu_kb
 from aiogram import Router
 # 1. ПЕРВЫМ ДЕЛОМ - Настройка Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
@@ -17,7 +17,8 @@ from aiogram.types import Message, BotCommand
 from aiogram.filters import CommandStart, Command
 from handlers.quiz_creation import router as creation_router
 from handlers.quiz_process import router as process_router
-
+from aiogram.fsm.context import FSMContext
+from aiogram import types
 
 # 3. Настройка окружения и логирования
 load_dotenv()
@@ -30,14 +31,25 @@ user_sessions = {}
 router = Router()
 # --- ХЕНДЛЕРЫ ---
 
-@dp.message(CommandStart())
-async def start_cmd(message: Message):
+@router.message(Command("start"))
+async def cmd_start(message: types.Message, state: FSMContext):
+    # На всякий случай чистим старые состояния, если юзер перезапускает бота
+    await state.clear()
+    
+    welcome_text = (
+        f"🧠 **QuizMaster AI — Твой карманный препод**\n\n"
+        f"Привет, {message.from_user.first_name}! С этого дня подготовка к экзаменам, "
+        f"модулям и зачетам станет в разы проще. 🎓\n\n"
+        f"📂 **Что я умею делать:**\n"
+        f"├ 📄 **Мгновенный парсинг:** Скидывай файл `.docx` или `.pdf` с готовыми тестами, и я соберу интерактивный квиз за 1 секунду.\n"
+        f"└ 🤖 **Умная доработка ИИ:** Если у тебя есть только список 'голых' вопросов без вариантов ответов, наш ИИ сам найдет правильные решения, сгенерирует крутые варианты и соберет полноценный тест!\n\n"
+        f"🚀 **Как начать?**\n"
+        f"Просто нажми кнопку **📝 Создать тест** на клавиатуре внизу. Я вышлю тебе инструкцию, и мы сразу начнем!"
+    )
+    
     await message.answer(
-        "👋 Привет, студент! Я помогу превратить файлы в тесты.\n\n"
-        "📍 **Как это работает:**\n"
-        "1. Просто скинь файл (.docx или .pdf).\n"
-        "2. Я сохраню его в твой личный кабинет и запущу опрос.\n"
-        "3. Остановить можно командой /stop.",
+        welcome_text, 
+        reply_markup=get_main_menu_kb(),
         parse_mode="Markdown"
     )
 

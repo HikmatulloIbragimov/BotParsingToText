@@ -1,5 +1,5 @@
 from aiogram.types import InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 # 1. Твои текущие функции (оставляем как есть)
 def get_creation_method_kb():
@@ -67,6 +67,12 @@ def get_pack_menu_kb(pack_id):
     ])
     return kb  
 
+def get_main_menu_kb():
+    builder = ReplyKeyboardBuilder()
+    # Размещаем кнопки: Создать тест вверху на всю ширину, Профиль чуть ниже
+    builder.row(KeyboardButton(text="📝 Создать тест"))
+    builder.row(KeyboardButton(text="👤 Мой профиль"))
+    return builder.as_markup(resize_keyboard=True) # resize_keyboard делает кнопки аккуратными, а не огромными
 
 def get_edit_menu_kb(pack_id):
     buttons = [
