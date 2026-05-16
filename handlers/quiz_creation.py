@@ -147,7 +147,7 @@ async def handle_document(message: Message, state: FSMContext):
         
         await message.answer(
             text=success_card,
-            reply_markup=get_file_action_menu(),
+            reply_markup=get_file_action_menu(pack.id),
             parse_mode="Markdown"
         )
         await state.clear()
@@ -159,13 +159,16 @@ async def handle_document(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "confirm_ai_generation")
 async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext):
-    # Получаем данные из FSM, которые мы сохранили на предыдущем шаге
+    # 1. Получаем данные из FSM, которые мы сохранили
     user_data = await state.get_data()
     raw_text = user_data.get("raw_text_for_ai")
-    pack_name = user_data.get("quiz_name") # Имя теста, которое юзер ввел на Шаге 1
+    pack_name = user_data.get("quiz_name")
     
     if not raw_text:
         return await callback.message.answer("❌ Ошибка: данные файла потеряны. Начни создание заново.")
+    
+    # 2. Достаем правильного пользователя из базы данных, как в handle_document!
+    user = await db.get_user(tg_id=callback.from_user.id, username=callback.from_user.username)
     
     # Отправляем первое сообщение загрузки (20%)
     status_msg = await callback.message.answer(
@@ -208,8 +211,8 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
             await status_msg.delete()
             return await callback.message.answer("❌ ИИ не смог корректно составить вопросы. Попробуй другой файл.")
             
-        # Сохраняем готовый ИИ-тест в базу данных
-        pack = await db.save_quiz_to_db(callback.from_user, pack_name, questions)
+        # 3. Сохраняем готовый ИИ-тест в базу данных, передавая правильный объект user!
+        pack = await db.save_quiz_to_db(user, pack_name, questions)
         
         # Удаляем прогресс-бар
         await status_msg.delete()
@@ -225,9 +228,10 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
             f"🤖 _Магия ИИ сработала! Вопросы получили варианты ответов и бережно сохранены в твой профиль._"
         )
         
+        # 4. Передаем pack.id в клавиатуру, чтобы кнопка настроек работала!
         await callback.message.answer(
             text=success_card,
-            reply_markup=get_file_action_menu(),
+            reply_markup=get_file_action_menu(pack.id),
             parse_mode="Markdown"
         )
         await state.clear()
