@@ -4,37 +4,43 @@ import io
 import logging
 import django
 from dotenv import load_dotenv
-from keyboards.keyboards import get_stop_confirm_kb, get_main_menu_kb
-from aiogram import Router
-from handlers.payment import router as payment_router
-# 1. ПЕРВЫМ ДЕЛОМ - Настройка Django
+
+# 1. СТРОГО ПЕРВЫМ ДЕЛОМ - Включаем окружение Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 django.setup()
 
-# 2. ПОСЛЕ ЭТОГО - Импорты из Django и Aiogram
-from aiogram import Bot, Dispatcher, F
+# ==========================================================
+# 2. ПОСЛЕ ЭТОГО - Все остальные импорты (aiogram и файлы проекта)
+# ==========================================================
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import Message, BotCommand
 from aiogram.filters import CommandStart, Command
-from handlers.quiz_creation import router as creation_router
-from handlers.quiz_process import router as process_router
 from aiogram.fsm.context import FSMContext
 from aiogram import types
 
-# 3. Настройка окружения и логирования
+from keyboards.keyboards import get_stop_confirm_kb, get_main_menu_kb
+
+# Импортируем роутеры из других файлов (теперь Django спит спокойно)
+from handlers.payment import router as payment_router
+from handlers.quiz_creation import router as creation_router
+from handlers.quiz_process import router as process_router
+
+# Настройка окружения и логирования
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-user_sessions = {}
+
+# Создаем локальный роутер для текущего файла
 router = Router()
-# --- ХЕНДЛЕРЫ ---
+
+# --- ХЕНДЛЕРЫ ТЕКУЩЕГО ФАЙЛА (Все строго через @router) ---
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
-    # На всякий случай чистим старые состояния, если юзер перезапускает бота
     await state.clear()
     
     welcome_text = (
@@ -53,7 +59,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-@dp.message(Command("help"))
+@router.message(Command("help")) # Перевели с @dp на @router
 async def help_handler(message: Message):
     await message.answer(
         "📖 **Инструкция по формату:**\n\n"
@@ -73,40 +79,39 @@ async def cmd_stop_ask(message: Message):
         parse_mode="Markdown"
     )
 
-### донат
-
-@dp.message(Command("donate"))
+@router.message(Command("donate")) # Перевели с @dp на @router
 async def donate_admin(message: Message):
     await message.answer(
-    "Помогите админу чтобы купить кофе\n"
-    "986000500343425"
+        "Помогите админу, чтобы купить кофе ☕️\n"
+        "`986000500343425`" # Обернул карту в код, чтобы студенты могли скопировать в один клик
     )
 
-# --- ЗАПУСК ---
+# --- НАСТРОЙКА МЕНЮ И ЗАПУСК ---
 
 async def set_main_menu(bot: Bot):
     commands = [
-        BotCommand(command='/start', description='Запустить бота '),
-        BotCommand(command='/newquiz', description='создать новый тест'),
-        BotCommand(command='/quizzes', description='мои тесты'),
-        BotCommand(command='/help', description='Как пользоваться? '),
-        BotCommand(command='/stop', description='Остановить тест '),
-        BotCommand(command='/donate', description='Донат для админа '),
+        BotCommand(command='/start', description='Запустить бота'),
+        BotCommand(command='/newquiz', description='Создать новый тест'),
+        BotCommand(command='/quizzes', description='Мои тесты'),
+        BotCommand(command='/help', description='Как пользоваться?'),
+        BotCommand(command='/stop', description='Остановить тест'),
+        BotCommand(command='/donate', description='Донат для админа'),
     ]
     await bot.set_my_commands(commands)
-    
     
 async def main():
     print("🚀 Бот запущен через Django-контекст!")
 
+    # Регистрируем роутеры в правильном порядке
     dp.include_router(process_router)
     dp.include_router(creation_router)
-    dp.include_router(router)
-    dp.include_router(payment_router)
+    dp.include_router(router)          # Наш текущий локальный роутер
+    dp.include_router(payment_router)  # Роутер платежей Payme
     
     await set_main_menu(bot)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
+
 if __name__ == "__main__":
     try:
         asyncio.run(main())
