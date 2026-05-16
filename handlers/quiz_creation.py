@@ -26,19 +26,51 @@ from utils.parsers import (
 router = Router()
 
 @router.message(Command("newquiz"))
+@router.message(F.text == "📝 Создать тест")
 async def cmd_new_quiz(message: Message, state: FSMContext):
-    await message.answer("📝 Как назовем твой новый тест?")
+    # Ставим состояние ожидания имени теста
     await state.set_state(QuizCreation.waiting_for_name)
+    
+    instruction_text = (
+        f"📝 **Создание нового теста**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"Для начала давай определимся с темой. "
+        f"Как мы назовем твой новый пакет тестов?\n\n"
+        f"✍️ _Например: Модуль по аудиту, История Узбекистана, Лекция 5._\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 **На следующем шаге ты сможешь скинуть файл:**\n"
+        f"• С готовой разметкой (вопросы + ответы)\n"
+        f"• Или просто список «голых» вопросов — и тогда мы призовем ИИ! 🤖"
+    )
+    
+    await message.answer(instruction_text, parse_mode="Markdown")
 
 @router.message(QuizCreation.waiting_for_name)
-async def process_name(message: Message, state: FSMContext):
+async def process_quiz_name(message: Message, state: FSMContext):
+    # Сохраняем имя в FSM (у тебя тут своя логика сохранения)
     await state.update_data(quiz_name=message.text)
-    await message.answer(
-        f"Отличное название: *{message.text}*!\nВыбери способ добавления:",
-        reply_markup=get_creation_method_kb(),
-        parse_mode="Markdown"
+    
+    # Меняем состояние на ожидание документа
+    await state.set_state(QuizCreation.waiting_for_file)
+    
+    file_instruction = (
+        f"🔥 **Отличное название! Теперь дело за малым**\n\n"
+        f"📂 Пожалуйста, отправь мне файл документа (`.docx` или `.pdf`).\n\n"
+        f"📖 **Как устроен парсер готовых тестов:**\n"
+        f"Если в твоем файле уже есть варианты, оформи их так:\n"
+        f"```text\n"
+        f"Вопрос?\n"
+        f"# Правильный ответ\n"
+        f"Неверный вариант 1\n"
+        f"Неверный вариант 2\n"
+        f"++++\n"
+        f"```\n"
+        f"⚠️ **Важно:** Разделитель `++++` ставится в конце каждого вопроса!\n\n"
+        f"🤖 **У тебя просто список вопросов без ответов?**\n"
+        f"Ничего страшного! Скидывай файл как есть. Если парсер не найдет разметку `++++`, я автоматически предложу тебе подключить ИИ, чтобы он сам заполнил варианты! ✨"
     )
-    await state.set_state(QuizCreation.waiting_for_content)
+    
+    await message.answer(file_instruction, parse_mode="Markdown")
 
 @router.callback_query(QuizCreation.waiting_for_content, F.data == "method_file")
 async def choose_file_method(callback: CallbackQuery):
