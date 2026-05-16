@@ -103,7 +103,7 @@ async def handle_document(message: Message, state: FSMContext):
             await state.update_data(raw_text_for_ai=raw_text)
             
             # Картинка робота-аналитика (можешь заменить на свою)
-            ai_card_photo = "https://www.pinterest.com/pin/594264113372752032/"
+            ai_card_photo = "http://googleusercontent.com/image_collection/image_retrieval/7955585360485285490"
             
             ai_offer_text = (
                 f"🔮 **Обнаружены вопросы без ответов!**\n"
