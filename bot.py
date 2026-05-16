@@ -37,14 +37,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     
     welcome_text = (
-        f"🧠 **QuizMaster AI — Твой карманный препод**\n\n"
-        f"Привет, {message.from_user.first_name}! С этого дня подготовка к экзаменам, "
-        f"модулям и зачетам станет в разы проще. 🎓\n\n"
-        f"📂 **Что я умею делать:**\n"
-        f"├ 📄 **Мгновенный парсинг:** Скидывай файл `.docx` или `.pdf` с готовыми тестами, и я соберу интерактивный квиз за 1 секунду.\n"
-        f"└ 🤖 **Умная доработка ИИ:** Если у тебя есть только список 'голых' вопросов без вариантов ответов, наш ИИ сам найдет правильные решения, сгенерирует крутые варианты и соберет полноценный тест!\n\n"
-        f"🚀 **Как начать?**\n"
-        f"Просто нажми кнопку **📝 Создать тест** на клавиатуре внизу. Я вышлю тебе инструкцию, и мы сразу начнем!"
+        f"🧠 **QuizMaster AI — Тесты в один клик!**\n\n"
+        f"Привет, {message.from_user.first_name}! Больше никаких скучных лекций и ручной зубрежки. 🎓\n\n"
+        f"🚀 **Что я умею:**\n"
+        f"📄 Быстро соберу интерактивный тест из твоих файлов.\n"
+        f"🤖 Дострою варианты ответов через ИИ, если есть только вопросы.\n\n"
+        f"👇 **Жми кнопку ниже**, отправляй документ и погнали!"
     )
     
     await message.answer(
@@ -102,7 +100,7 @@ async def main():
     dp.include_router(process_router)
     dp.include_router(creation_router)
     dp.include_router(router)
-    
+
     await set_main_menu(bot)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
