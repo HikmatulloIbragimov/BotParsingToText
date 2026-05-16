@@ -4,9 +4,9 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, PollAnswer
 from aiogram.filters import Command
 from asgiref.sync import sync_to_async
-from django.db import close_old_connections
 from aiogram import Bot
 import random
+from aiogram import F
 from utils.db_api import db
 from quizzes.models import Question, TestPack, TestSession
 from keyboards.keyboards import (
@@ -373,7 +373,7 @@ async def show_quizzes_list(callback: CallbackQuery):
 
 
 
-@router.message(Command("profile"))
+@router.message(Command("profile") | (F.text == "👤 Мой профиль"))
 async def show_profile(message: Message):
     # Находим юзера в базе Джанго асинхронно
     user = await sync_to_async(TelegramUser.objects.get)(user_id=message.from_user.id)
