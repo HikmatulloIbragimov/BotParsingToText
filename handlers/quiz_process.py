@@ -1,5 +1,5 @@
 import asyncio
-import logging
+from quizzes.models import TelegramUser
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, PollAnswer
 from aiogram.filters import Command
@@ -368,3 +368,32 @@ async def show_quizzes_list(callback: CallbackQuery):
         "Твои тесты:",
         reply_markup=get_quizzes_list_kb(packs) # Та самая функция из keyboards.py
     )
+
+
+
+
+
+@router.message(Command("profile"))
+async def show_profile(message: Message):
+    # Находим юзера в базе Джанго асинхронно
+    user = await sync_to_async(TelegramUser.objects.get)(user_id=message.from_user.id)
+    
+    status_text = "✨ PRO-Доступ" if user.is_premium else "👁 Обычный"
+    
+    profile_card = (
+        f"👤 **ТВОЙ ПРОФИЛЬ**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 **ID:** `{user.user_id}`\n"
+        f"🪙 **Баланс:** `{user.balance}` сум\n"
+        f"💎 **Статус:** *{status_text}*\n"
+        f"🎁 **Бесплатный тест:** {'Доступен ✅' if user.has_free_attempt else 'Использован ❌'}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Используй кнопки ниже, чтобы протестировать платежную систему Payme 👇"
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🪙 Пополнить на 3 000 сум", callback_data="pay_3k")],
+        [InlineKeyboardButton(text="💎 Купить Премиум (10 000 сум)", callback_data="pay_10k")]
+    ])
+    
+    await message.answer(profile_card, reply_markup=kb, parse_mode="Markdown")

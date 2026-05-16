@@ -1,12 +1,22 @@
 from django.db import models
 
 class TelegramUser(models.Model):
-    user_id = models.BigIntegerField(unique=True, primary_key=True)
-    username = models.CharField(max_length=255, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    user_id = models.BigIntegerField(unique=True, primary_key=True, verbose_name="Telegram ID")
+    username = models.CharField(max_length=255, null=True, blank=True, verbose_name="Юзернейм")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата регистрации")
+    
+    # --- НАШИ НОВЫЕ ПОЛЯ ДЛЯ ПЛАТЕЖЕК ---
+    balance = models.IntegerField(default=0, verbose_name="Баланс (сум)")
+    is_premium = models.BooleanField(default=False, verbose_name="Премиум статус")
+    premium_until = models.DateTimeField(null=True, blank=True, verbose_name="Премиум активен до")
+    has_free_attempt = models.BooleanField(default=True, verbose_name="Есть бесплатная попытка")
 
     def __str__(self):
         return f"@{self.username}" if self.username else str(self.user_id)
+
+    class Meta:
+        verbose_name = "Пользователь Telegram"
+        verbose_name_plural = "Пользователи Telegram"
 
 class TestPack(models.Model):
     user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE, related_name='packs')
