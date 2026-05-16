@@ -15,7 +15,7 @@ PAYMENT_TOKEN = os.getenv("PAYME_TEST_TOKEN")
 # ==========================================
 
 # Срабатывает при нажатии кнопки "Пополнить баланс на 3 000 сум" в твоем профиле
-@router.callback_query(F.data == "test_pay_3k")
+@router.callback_query(F.data == "pay_3k")
 async def process_pay_3k(callback: CallbackQuery):
     await callback.message.delete() # Стираем сообщение профиля, чтобы красиво вылетел чек
     
@@ -36,7 +36,7 @@ async def process_pay_3k(callback: CallbackQuery):
 
 
 # Срабатывает при нажатии кнопки "Купить Месячный PRO (10 000 сум)"
-@router.callback_query(F.data == "test_pay_10k")
+@router.callback_query(F.data == "pay_10k")
 async def process_pay_10k(callback: CallbackQuery):
     await callback.message.delete()
     
