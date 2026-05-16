@@ -373,7 +373,8 @@ async def show_quizzes_list(callback: CallbackQuery):
 
 
 
-@router.message(Command("profile") | (F.text == "👤 Мой профиль"))
+@router.message(Command("profile"))
+@router.message(F.text == "👤 Мой профиль")
 async def show_profile(message: Message):
     # Находим юзера в базе Джанго асинхронно
     user = await sync_to_async(TelegramUser.objects.get)(user_id=message.from_user.id)
