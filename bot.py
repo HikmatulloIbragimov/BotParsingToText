@@ -6,6 +6,7 @@ import django
 from dotenv import load_dotenv
 from keyboards.keyboards import get_stop_confirm_kb, get_main_menu_kb
 from aiogram import Router
+from handlers.payment import router as payment_router
 # 1. ПЕРВЫМ ДЕЛОМ - Настройка Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
@@ -101,7 +102,8 @@ async def main():
     dp.include_router(process_router)
     dp.include_router(creation_router)
     dp.include_router(router)
-
+    dp.include_router(payment_router)
+    
     await set_main_menu(bot)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
