@@ -17,11 +17,10 @@ def get_manual_creation_kb():
     )
 
 # 2. ТА САМАЯ НЕДОСТАЮЩАЯ ФУНКЦИЯ (для quiz_creation.py)
-def get_file_action_menu():
-    # Мы используем InlineKeyboardMarkup, чтобы кнопки были под сообщением
+def get_file_action_menu(pack_id: int): # <-- Добавили аргумент pack_id
     buttons = [
-        [InlineKeyboardButton(text="🚀 Запустить всё", callback_data="run_all")],
-        [InlineKeyboardButton(text="⚙️ Настроить пак (скоро)", callback_data="settings_pack")]
+        [InlineKeyboardButton(text="⚡️ Запустить тестирование", callback_data=f"start_quiz_{pack_id}")],
+        [InlineKeyboardButton(text="⚙️ Настройки пакета", callback_data=f"edit_pack_{pack_id}")] # Перенаправляем на твой готовый хендлер!
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

@@ -5,7 +5,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
-
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 # Твои модули
 from utils.ai_engine import generate_quiz_with_ai
 from utils.db_api import db
@@ -14,7 +14,7 @@ from keyboards.keyboards import (
     get_creation_method_kb, 
     get_file_action_menu
 )
-
+from aiogram import types
 # Импортируем функции из parsers.py 
 # Используем 'as', чтобы оставить логику в коде прежней
 from utils.parsers import (
@@ -95,33 +95,153 @@ async def handle_document(message: Message, state: FSMContext):
         # --- ШАГ 2: Пробуем найти готовую структуру (в файле) ---
         questions = parse_text_logic(raw_text)
 
-        # --- ШАГ 3: Если структуры нет — зовем ИИ ---
+        # --- ШАГ 3: Если готовой разметки нет — перехватываем и предлагаем ИИ ---
         if not questions:
-            await status_msg.edit_text("🤖 Готовых ответов не нашли. Работает ИИ (10-15 сек)...")
+            await status_msg.delete() # Удаляем старый текст "Обработка..."
             
-            # Обрезаем текст для безопасности OpenRouter
-            safe_text = raw_text[:10000]
+            # Сохраняем сырой текст в состояние, чтобы использовать его, если юзер нажмет "Да"
+            await state.update_data(raw_text_for_ai=raw_text)
             
-            ai_output = await generate_quiz_with_ai(safe_text)
-                     
-            # Парсим то, что вернул ИИ
-            questions = parse_text_logic(ai_output)
+            # Картинка робота-аналитика (можешь заменить на свою)
+            ai_card_photo = "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=1000"
+            
+            ai_offer_text = (
+                f"🔮 **Обнаружены вопросы без ответов!**\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"Я внимательно изучил твой файл. Готовых вариантов ответов и разметки (`++++`) внутри нет.\n\n"
+                f"🤖 **Подключить ИИ к работе?**\n"
+                f"Наш интеллект сам прочитает файл, найдет правильные ответы в интернете/базе и сгенерирует полноценный интерактивный тест за 15 секунд!\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"👇 _Выбери действие:_"
+            )
+            
+            # Клавиатура подтверждения вызова ИИ
+            ai_choice_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🤖 Да, запустить ИИ", callback_data="confirm_ai_generation")],
+                [InlineKeyboardButton(text="🛑 Отмена (В меню)", callback_data="cancel_quiz_creation")]
+            ])
+            
+            return await message.answer_photo(
+                photo=ai_card_photo,
+                caption=ai_offer_text,
+                reply_markup=ai_choice_kb,
+                parse_mode="Markdown"
+            )
 
-        # --- ШАГ 4: Проверка и сохранение ---
-        if not questions:
-            await status_msg.delete()
-            return await message.answer("❌ Не удалось найти или создать вопросы. Проверь формат файла.")
-
+        # --- ШАГ 4: Сохранение (Если разметка БЫЛА в файле изначально) ---
         # Сохраняем пакет в базу
         pack = await db.save_quiz_to_db(user, pack_name, questions)
         
         await status_msg.delete()
+        
+        # Наш новый красивый чек-успех
+        success_card = (
+            f"🎉 **ПАКЕТ ТЕСТОВ УСПЕШНО СОЗДАН!**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📦 **Название пакета:** *{pack_name}*\n"
+            f"📊 **Загружено вопросов:** `{len(questions)}` шт.\n"
+            f"🔑 **Статус:** `Полностью готов` ✅\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🧠 _Все вопросы успешно извлечены из файла и упакованы. Время проверить свои знания!_"
+        )
+        
         await message.answer(
-            f"✅ Пакет «{pack.name}» создан!\n📊 Вопросов загружено: {len(questions)}",
-            reply_markup=get_file_action_menu()
+            text=success_card,
+            reply_markup=get_file_action_menu(),
+            parse_mode="Markdown"
         )
         await state.clear()
 
     except Exception as e:
         logging.error(f"Ошибка при обработке файла: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)[:100]}")
+
+
+@router.callback_query(F.data == "confirm_ai_generation")
+async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext):
+    # Получаем данные из FSM, которые мы сохранили на предыдущем шаге
+    user_data = await state.get_data()
+    raw_text = user_data.get("raw_text_for_ai")
+    pack_name = user_data.get("quiz_name") # Имя теста, которое юзер ввел на Шаге 1
+    
+    if not raw_text:
+        return await callback.message.answer("❌ Ошибка: данные файла потеряны. Начни создание заново.")
+    
+    # Отправляем первое сообщение загрузки (20%)
+    status_msg = await callback.message.answer(
+        "📡 **Устанавливаю соединение с ИИ...**\n"
+        "⏳ `[■■□□□□□□□□] 20%` \n\n"
+        "ℹ️ _Отправляем запрос на сервера генерации..._",
+        parse_mode="Markdown"
+    )
+    
+    # Удаляем карточку с предложением ИИ, чтобы не захламлять чат
+    await callback.message.delete()
+    
+    try:
+        # Обрезаем текст для безопасности лимитов
+        safe_text = raw_text[:10000]
+        
+        # Шаг 2 (50%)
+        await status_msg.edit_text(
+            "🧠 **ИИ проводит глубокий анализ вопросов...**\n"
+            "⏳ `[■■■■■□□□□□] 50%` \n\n"
+            "ℹ️ _Ищем правильные ответы и генерируем ложные варианты..._",
+            parse_mode="Markdown"
+        )
+        
+        # Запуск самого тяжелого процесса генерации ИИ
+        ai_output = await generate_quiz_with_ai(safe_text)
+        
+        # Шаг 3 (80%)
+        await status_msg.edit_text(
+            "🧪 **Синтезирую вопросы и упаковываю варианты...**\n"
+            "⏳ `[■■■■■■■■□□] 80%` \n\n"
+            "ℹ️ _Проверяем совместимость с Telegram квизами..._",
+            parse_mode="Markdown"
+        )
+        
+        # Парсим то, что вернул ИИ
+        questions = parse_text_logic(ai_output)
+        
+        if not questions:
+            await status_msg.delete()
+            return await callback.message.answer("❌ ИИ не смог корректно составить вопросы. Попробуй другой файл.")
+            
+        # Сохраняем готовый ИИ-тест в базу данных
+        pack = await db.save_quiz_to_db(callback.from_user, pack_name, questions)
+        
+        # Удаляем прогресс-бар
+        await status_msg.delete()
+        
+        # Выдаем шикарный финальный чек
+        success_card = (
+            f"🎉 **ПАКЕТ ТЕСТОВ УСПЕШНО СОЗДАН!**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📦 **Название пакета:** *{pack_name}*\n"
+            f"📊 **Сгенерировано через ИИ:** `{len(questions)}` шт.\n"
+            f"🔑 **Статус:** `Полностью готов` ✅\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🤖 _Магия ИИ сработала! Вопросы получили варианты ответов и бережно сохранены в твой профиль._"
+        )
+        
+        await callback.message.answer(
+            text=success_card,
+            reply_markup=get_file_action_menu(),
+            parse_mode="Markdown"
+        )
+        await state.clear()
+        
+    except Exception as e:
+        logging.error(f"Ошибка ИИ генерации: {e}")
+        await status_msg.edit_text(f"❌ Произошла ошибка при работе ИИ: {str(e)[:100]}")
+        
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cancel_quiz_creation")
+async def cancel_quiz_creation(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.delete()
+    await callback.message.answer("🛑 Создание теста отменено. Ты вернулся в главное меню.")
+    await callback.answer()
