@@ -393,8 +393,8 @@ async def show_profile(message: Message):
     )
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🪙 Пополнить на 3 000 сум", callback_data="pay_3k")],
-        [InlineKeyboardButton(text="💎 Купить Премиум (10 000 сум)", callback_data="pay_10k")]
+        [InlineKeyboardButton(text="🪙 Пополнить на 3 000 сум", callback_data="test_pay_3k")],
+        [InlineKeyboardButton(text="💎 Купить Премиум (10 000 сум)", callback_data="test_pay_10k")]
     ])
     
     await message.answer(profile_card, reply_markup=kb, parse_mode="Markdown")

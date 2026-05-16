@@ -2,7 +2,7 @@ import os
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, LabeledPrice, PreCheckoutQuery, Message
 from asgiref.sync import sync_to_async
-
+import random
 # Проверь этот импорт! Укажи правильный путь к твоей Django-модели
 from quizzes.models import TelegramUser 
 
@@ -15,46 +15,47 @@ PAYMENT_TOKEN = os.getenv("PAYME_TEST_TOKEN")
 # ==========================================
 
 # Срабатывает при нажатии кнопки "Пополнить баланс на 3 000 сум" в твоем профиле
-@router.callback_query(F.data == "pay_3k")
+@router.callback_query(F.data == "test_pay_3k")
 async def process_pay_3k(callback: CallbackQuery):
-    await callback.message.delete() # Стираем сообщение профиля, чтобы красиво вылетел чек
+    # Удаляем старое сообщение профиля, чтобы не засорять чат
+    await callback.message.delete()
     
-    # Сумма указывается в тийинах (3000 сум * 100)
-    prices = [LabeledPrice(label="Пополнение кошелька (1 тест)", amount=300000)]
+    # Генерируем случайный код для проверки
+    pay_code = random.randint(1000, 9999)
     
-    await callback.message.bot.send_invoice(
-        chat_id=callback.message.chat.id,
-        title="🪙 Баланс бота",
-        description="Зачисление 3 000 сум на покупку одной генерации теста.",
-        provider_token=PAYMENT_TOKEN,
-        currency="UZS", # Наш родной сум
-        prices=prices,
-        payload="deposit_3000_payload", # Секретная метка платежа
-        start_parameter="pay_single_quiz"
+    text = (
+        f"💳 **ПОПОЛНЕНИЕ КОШЕЛЬКА — 3 000 сум**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Переведи **3 000 сум** на карту:\n"
+        f"`986000500343425` (Карта Uzcard/Humo)\n\n"
+        f"⚠️ **КРИТИЧЕСКИ ВАЖНО:**\n"
+        f"В комментарии к переводу (в приложении Payme/Click) ОБЯЗАТЕЛЬНО укажи этот код: **{pay_code}**\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"После отправки перевода пришли скриншот чека админу: @твой_юзернейм\n"
+        f"Баланс зачислится автоматически в течение 5 минут! 🚀"
     )
+    await callback.message.answer(text, parse_mode="Markdown")
     await callback.answer()
 
-
-# Срабатывает при нажатии кнопки "Купить Месячный PRO (10 000 сум)"
-@router.callback_query(F.data == "pay_10k")
+@router.callback_query(F.data == "test_pay_10k")
 async def process_pay_10k(callback: CallbackQuery):
     await callback.message.delete()
     
-    # 10 000 сум * 100 = 1 000 000 тийинов
-    prices = [LabeledPrice(label="PRO Подписка на 30 дней", amount=1000000)]
+    pay_code = random.randint(1000, 9999)
     
-    await callback.message.bot.send_invoice(
-        chat_id=callback.message.chat.id,
-        title="💎 Доступ PRO-Безлимит",
-        description="Активация безлимитных запросов к ИИ на 1 месяц.",
-        provider_token=PAYMENT_TOKEN,
-        currency="UZS",
-        prices=prices,
-        payload="premium_10000_payload",
-        start_parameter="pay_premium_month"
+    text = (
+        f"💎 **КУПИТЬ ПРЕМИУМ — 10 000 сум**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Переведи **10 000 сум** на карту:\n"
+        f"`986000500343425` (Карта Uzcard/Humo)\n\n"
+        f"⚠️ **КРИТИЧЕСКИ ВАЖНО:**\n"
+        f"В комментарии к переводу ОБЯЗАТЕЛЬНО укажи этот код: **{pay_code}**\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"После отправки перевода пришли скриншот чека админу: @твой_юзернейм\n"
+        f"Премиум активируется сразу после проверки! 👑"
     )
+    await callback.message.answer(text, parse_mode="Markdown")
     await callback.answer()
-
 
 # ==========================================
 # 2. СИСТЕМНОЕ ПОДТВЕРЖДЕНИЕ ТЕЛЕГРАМУ (ОК)
