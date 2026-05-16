@@ -51,7 +51,7 @@ async def process_quiz_name(message: Message, state: FSMContext):
     await state.update_data(quiz_name=message.text)
     
     # Меняем состояние на ожидание документа
-    await state.set_state(QuizCreation.waiting_for_file)
+    await state.set_state(QuizCreation.waiting_for_content)
     
     file_instruction = (
         f"🔥 **Отличное название! Теперь дело за малым**\n\n"
