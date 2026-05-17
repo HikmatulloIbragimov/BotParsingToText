@@ -11,7 +11,7 @@ router = Router()
 
 # ТВОЙ ТЕЛЕГРАМ ID (Узнай его в @userinfobot)
 ADMIN_ID = os.getenv("ADMIN_ID")
-
+ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 class PaymentStates(StatesGroup):
     wait_screenshot = State()
 
