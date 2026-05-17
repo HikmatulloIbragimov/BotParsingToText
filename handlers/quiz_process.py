@@ -233,15 +233,29 @@ async def start_test_handler(callback: CallbackQuery):
 
 @router.callback_query(lambda c: c.data.startswith('view_pack_'))
 async def view_pack_menu(callback: CallbackQuery):
+    await callback.answer() # Сразу гасим часики на кнопке, чтобы бот не тупил
+    
     pack_id = int(callback.data.split('_')[2])
     
-    # Теперь Python знает, что такое QuestionPack
+    # Загружаем пак и количество вопросов
     pack = await sync_to_async(TestPack.objects.get)(id=pack_id)
     count = await sync_to_async(Question.objects.filter(pack=pack).count)()
 
+    # Собираем красивую карточку управления тестом
+    pack_text = (
+        f"📦 **УПРАВЛЕНИЕ ТЕСТОМ**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📖 **Название:** {pack.name}\n"
+        f"📝 **Количество вопросов:** `{count} шт.`\n"\
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🚀 Выберите действие ниже, чтобы запустить интерактивное тестирование, "
+        f"настроить параметры или удалить этот пакет:"
+    )
+
     await callback.message.edit_text(
-        f"📦 Пак: {pack.name}\n📝 Вопросов: {count}",
-        reply_markup=get_pack_menu_kb(pack_id) # Вызываем функцию из keyboards.py
+        text=pack_text,
+        reply_markup=get_pack_menu_kb(pack_id), # Твоя клавиатура из keyboards.py
+        parse_mode="Markdown" # Железно добавляем для разметки!
     )
 
 
