@@ -16,6 +16,11 @@ class TelegramUser(models.Model):
     is_premium_bool = models.BooleanField(default=False, db_column="is_premium", verbose_name="Премиум статус (устарело)")
     premium_until = models.DateTimeField(null=True, blank=True, verbose_name="Премиум активен до")
 
+    def __str__(self):
+            # Теперь даже в заголовках будет выводиться: "admin (ID: 1984089189)"
+            name = f"@{self.username}" if self.username else "Без юзернейма"
+            return f"{name} (ID: {self.user_id})"
+
     @property
     def is_premium(self):
         """Умная проверка премиума (ЧТЕНИЕ: user.is_premium)"""
