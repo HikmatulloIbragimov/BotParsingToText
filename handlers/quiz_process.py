@@ -379,20 +379,35 @@ async def show_profile(message: Message):
     # Находим юзера в базе Джанго асинхронно
     user = await sync_to_async(TelegramUser.objects.get)(user_id=message.from_user.id)
     
-    status_text = "✨ PRO-Доступ" if user.is_premium else "👁 Обычный"
+    # 1. Проверка премиума и вывод оставшихся дней
+    if user.is_premium:
+        # Если дней 999 (поставили флаг в админке), пишем просто PRO
+        if user.premium_days_left > 100:
+            status_text = "✨ PRO-Доступ 👑"
+        else:
+            status_text = f"✨ PRO-Доступ (Осталось дней: {user.premium_days_left}) 👑"
+    else:
+        status_text = "👁 Обычный"
     
+    # 2. Проверка бесплатных попыток (выводим количество, если они есть)
+    if user.free_attempts_left > 0:
+        free_test_text = f"Доступно: {user.free_attempts_left} ✅"
+    else:
+        free_test_text = "Использован ❌"
+    
+    # Твой красивый шаблон, но с динамическими данными
     profile_card = (
         f"👤 **ТВОЙ ПРОФИЛЬ**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🆔 **ID:** `{user.user_id}`\n"
         f"🪙 **Баланс:** `{user.balance:,}` сум\n"
         f"💎 **Статус:** *{status_text}*\n"
-        f"🎁 **Бесплатный тест:** {'Доступен ✅' if user.has_free_attempt else 'Использован ❌'}\n"
+        f"🎁 **Бесплатный тест:** {free_test_text}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Выбирай нужный тариф ниже, чтобы пополнить баланс и мгновенно переводить лекции в тесты! 👇"
     )
     
-    # ИСПРАВЛЕНО: Добавили четкие callback_data для нашего нового payment.py
+    # Кнопки с правильными callback_data для нового payment.py
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🪙 Пополнить на 3 000 сум", callback_data="test_pay_3k")],
         [InlineKeyboardButton(text="💎 Купить Премиум (10 000 сум)", callback_data="test_pay_10k")]

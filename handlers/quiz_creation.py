@@ -6,6 +6,9 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram import types
+from asgiref.sync import sync_to_async  # Импортируем для безопасного сохранения модели
+
 # Твои модули
 from utils.ai_engine import generate_quiz_with_ai
 from utils.db_api import db
@@ -14,9 +17,8 @@ from keyboards.keyboards import (
     get_creation_method_kb, 
     get_file_action_menu
 )
-from aiogram import types
+
 # Импортируем функции из parsers.py 
-# Используем 'as', чтобы оставить логику в коде прежней
 from utils.parsers import (
     extract_text_from_docx as get_raw_text_from_docx, 
     extract_text_from_pdf as get_raw_text_from_pdf, 
@@ -25,10 +27,25 @@ from utils.parsers import (
 
 router = Router()
 
+# --- 1. ВХОДНОЙ ФИЛЬТР: ПРОВЕРКА ПРИ СТАРТЕ ---
 @router.message(Command("newquiz"))
 @router.message(F.text == "📝 Создать тест")
 async def cmd_new_quiz(message: Message, state: FSMContext):
-    # Ставим состояние ожидания имени теста
+    # Достаем юзера из базы данных
+    user = await db.get_user(tg_id=message.from_user.id, username=message.from_user.username)
+    
+    # Жесткая проверка: если нет премиума, нет попыток и баланс пуст — стопаем!
+    if not user.is_premium and user.free_attempts_left <= 0 and user.balance < 3000:
+        await message.answer(
+            "❌ **Доступ заблокирован! Недостаточно средств.**\n\n"
+            "У вас закончились бесплатные попытки, а на балансе 0 сум.\n"
+            "Создание новых тестов через нейросеть требует ресурсов сервера. 🧠\n\n"
+            "Перейдите в 👤 **Мой профиль**, чтобы пополнить баланс или приобрести Премиум-доступ!",
+            parse_mode="Markdown"
+        )
+        return  # Прерываем выполнение, стейт не ставится
+
+    # Если проверка пройдена, запускаем сценарий
     await state.set_state(QuizCreation.waiting_for_name)
     
     instruction_text = (
@@ -41,12 +58,10 @@ async def cmd_new_quiz(message: Message, state: FSMContext):
     
     await message.answer(instruction_text, parse_mode="Markdown")
 
+
 @router.message(QuizCreation.waiting_for_name)
 async def process_quiz_name(message: Message, state: FSMContext):
-    # Сохраняем имя в FSM (у тебя тут своя логика сохранения)
     await state.update_data(quiz_name=message.text)
-    
-    # Меняем состояние на ожидание документа
     await state.set_state(QuizCreation.waiting_for_content)
     
     file_instruction = (
@@ -61,10 +76,12 @@ async def process_quiz_name(message: Message, state: FSMContext):
     
     await message.answer(file_instruction, parse_mode="Markdown")
 
+
 @router.callback_query(QuizCreation.waiting_for_content, F.data == "method_file")
 async def choose_file_method(callback: CallbackQuery):
     await callback.message.answer("Пришли файл (.docx или .pdf)")
     await callback.answer()
+
 
 @router.message(F.document, QuizCreation.waiting_for_content)
 async def handle_document(message: Message, state: FSMContext):
@@ -72,7 +89,6 @@ async def handle_document(message: Message, state: FSMContext):
     if not file_name.endswith(('.docx', '.pdf')):
         return await message.answer("❌ Я понимаю только .docx и .pdf")
 
-    # Получаем данные из базы и состояния
     user = await db.get_user(tg_id=message.from_user.id, username=message.from_user.username)
     data = await state.get_data()
     pack_name = data.get("quiz_name") or message.document.file_name
@@ -80,29 +96,23 @@ async def handle_document(message: Message, state: FSMContext):
     status_msg = await message.answer("⏳ Анализирую файл...")
     
     try:
-        # Скачиваем файл
         file_io = io.BytesIO()
         file = await message.bot.get_file(message.document.file_id)
         await message.bot.download_file(file.file_path, file_io)
         file_io.seek(0)
 
-        # --- ШАГ 1: Извлекаем сырой текст ---
         if file_name.endswith('.docx'):
             raw_text = get_raw_text_from_docx(file_io)
         else:
             raw_text = get_raw_text_from_pdf(file_io)
 
-        # --- ШАГ 2: Пробуем найти готовую структуру (в файле) ---
         questions = parse_text_logic(raw_text)
 
-        # --- ШАГ 3: Если готовой разметки нет — перехватываем и предлагаем ИИ ---
+        # Если разметки нет — предлагаем ИИ (деньги пока НЕ списываем, спишем при согласии)
         if not questions:
-            await status_msg.delete() # Удаляем старый текст "Обработка..."
-            
-            # Сохраняем сырой текст в состояние, чтобы использовать его, если юзер нажмет "Да"
+            await status_msg.delete()
             await state.update_data(raw_text_for_ai=raw_text)
             
-            # Картинка робота-аналитика (можешь заменить на свою)
             ai_card_photo = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000"
             
             ai_offer_text = (
@@ -115,7 +125,6 @@ async def handle_document(message: Message, state: FSMContext):
                 f"👇 _Выбери действие:_"
             )
             
-            # Клавиатура подтверждения вызова ИИ
             ai_choice_kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🤖 Да, запустить ИИ", callback_data="confirm_ai_generation")],
                 [InlineKeyboardButton(text="🛑 Отмена (В меню)", callback_data="cancel_quiz_creation")]
@@ -128,13 +137,21 @@ async def handle_document(message: Message, state: FSMContext):
                 parse_mode="Markdown"
             )
 
-        # --- ШАГ 4: Сохранение (Если разметка БЫЛА в файле изначально) ---
-        # Сохраняем пакет в базу
+        # --- СПИСАНИЕ №1: ЕСЛИ РАЗМЕТКА БЫЛА В ФАЙЛЕ И ТЕСТ УСПЕШНО СОЗДАН ---
         pack = await db.save_quiz_to_db(user, pack_name, questions)
         
+        # Списываем ресурсы, если нет Премиума
+        if not user.is_premium:
+            if user.free_attempts_left > 0:
+                user.free_attempts_left -= 1
+                await message.answer(f"📉 Использована 1 бесплатная попытка. Осталось: {user.free_attempts_left}")
+            else:
+                user.balance -= 3000
+                await message.answer(f"🪙 С баланса списано 3 000 сум. Оставшийся баланс: {user.balance:,} сум")
+            await sync_to_async(user.save)()
+
         await status_msg.delete()
         
-        # Наш новый красивый чек-успех
         success_card = (
             f"🎉 **ПАКЕТ ТЕСТОВ УСПЕШНО СОЗДАН!**\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -159,7 +176,6 @@ async def handle_document(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "confirm_ai_generation")
 async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext):
-    # 1. Получаем данные из FSM, которые мы сохранили
     user_data = await state.get_data()
     raw_text = user_data.get("raw_text_for_ai")
     pack_name = user_data.get("quiz_name")
@@ -167,10 +183,8 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
     if not raw_text:
         return await callback.message.answer("❌ Ошибка: данные файла потеряны. Начни создание заново.")
     
-    # 2. Достаем правильного пользователя из базы данных, как в handle_document!
     user = await db.get_user(tg_id=callback.from_user.id, username=callback.from_user.username)
     
-    # Отправляем первое сообщение загрузки (20%)
     status_msg = await callback.message.answer(
         "📡 **Устанавливаю соединение с ИИ...**\n"
         "⏳ `[■■□□□□□□□□] 20%` \n\n"
@@ -178,14 +192,11 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
         parse_mode="Markdown"
     )
     
-    # Удаляем карточку с предложением ИИ, чтобы не захламлять чат
     await callback.message.delete()
     
     try:
-        # Обрезаем текст для безопасности лимитов
         safe_text = raw_text[:10000]
         
-        # Шаг 2 (50%)
         await status_msg.edit_text(
             "🧠 **ИИ проводит глубокий анализ вопросов...**\n"
             "⏳ `[■■■■■□□□□□] 50%` \n\n"
@@ -193,10 +204,8 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
             parse_mode="Markdown"
         )
         
-        # Запуск самого тяжелого процесса генерации ИИ
         ai_output = await generate_quiz_with_ai(safe_text)
         
-        # Шаг 3 (80%)
         await status_msg.edit_text(
             "🧪 **Синтезирую вопросы и упаковываю варианты...**\n"
             "⏳ `[■■■■■■■■□□] 80%` \n\n"
@@ -204,20 +213,26 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
             parse_mode="Markdown"
         )
         
-        # Парсим то, что вернул ИИ
         questions = parse_text_logic(ai_output)
         
         if not questions:
             await status_msg.delete()
             return await callback.message.answer("❌ ИИ не смог корректно составить вопросы. Попробуй другой файл.")
             
-        # 3. Сохраняем готовый ИИ-тест в базу данных, передавая правильный объект user!
+        # --- СПИСАНИЕ №2: ЕСЛИ ТЕСТ СГЕНЕРИРОВАН ИИ УСПЕШНО ---
         pack = await db.save_quiz_to_db(user, pack_name, questions)
         
-        # Удаляем прогресс-бар
+        if not user.is_premium:
+            if user.free_attempts_left > 0:
+                user.free_attempts_left -= 1
+                await callback.message.answer(f"📉 Использована 1 бесплатная попытка. Осталось: {user.free_attempts_left}")
+            else:
+                user.balance -= 3000
+                await callback.message.answer(f"🪙 С баланса списано 3 000 сум. Оставшийся баланс: {user.balance:,} сум")
+            await sync_to_async(user.save)()
+
         await status_msg.delete()
         
-        # Выдаем шикарный финальный чек
         success_card = (
             f"🎉 **ПАКЕТ ТЕСТОВ УСПЕШНО СОЗДАН!**\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -228,7 +243,6 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
             f"🤖 _Магия ИИ сработала! Вопросы получили варианты ответов и бережно сохранены в твой профиль._"
         )
         
-        # 4. Передаем pack.id в клавиатуру, чтобы кнопка настроек работала!
         await callback.message.answer(
             text=success_card,
             reply_markup=get_file_action_menu(pack.id),

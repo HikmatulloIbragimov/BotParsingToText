@@ -6,6 +6,7 @@ from aiogram.fsm.state import StatesGroup, State
 from asgiref.sync import sync_to_async
 from quizzes.models import TelegramUser  # Проверь правильность импорта модели!
 import os
+from aiogram.filters import Command
 router = Router()
 
 # ТВОЙ ТЕЛЕГРАМ ID (Узнай его в @userinfobot)
@@ -167,3 +168,79 @@ async def retry_payment_process(callback: CallbackQuery, state: FSMContext):
     # Снова выводим карту и запускаем стейт ожидания
     await send_payment_instruction(callback.message, amount, state)
     await callback.answer()
+
+
+
+
+# Команда компенсации попытки: /give_try [USER_ID] [КОЛИЧЕСТВО]
+# Пример: /give_try 1351070481 3
+@router.message(Command("give_try"), F.from_user.id == ADMIN_ID)
+async def admin_give_try(message: Message, bot: Bot):
+    try:
+        _, user_id, count = message.text.split()
+        user = await sync_to_async(TelegramUser.objects.get)(user_id=int(user_id))
+        user.free_attempts_left += int(count)
+        await sync_to_async(user.save)()
+        
+        await message.answer(f"✅ Успешно начислено {count} попыток юзеру `{user_id}`")
+        # Насильно радуем юзера пушом
+        await bot.send_message(chat_id=int(user_id), text=f"🎁 **Администрация начислила вам {count} бонусных бесплатных попыток!** Приносим извинения за временные неудобства. Продолжаем штурм! 🚀")
+    except Exception as e:
+        await message.answer(f"Ошибка: {e}. Формат: /give_try ID КОЛ_ВО")
+
+# Команда компенсации премиума на ДНИ: /give_premium [USER_ID] [ДНИ]
+# Пример: /give_premium 1351070481 1
+@router.message(Command("give_premium"), F.from_user.id == ADMIN_ID)
+async def admin_give_premium(message: Message, bot: Bot):
+    try:
+        _, user_id, days = message.text.split()
+        user = await sync_to_async(TelegramUser.objects.get)(user_id=int(user_id))
+        
+        # Начисляем дни от текущего момента
+        from django.utils import timezone
+        import datetime
+        user.premium_until = timezone.now() + datetime.timedelta(days=int(days))
+        await sync_to_async(user.save)()
+        
+        await message.answer(f"✅ Юзеру `{user_id}` выдан Премиум на {days} дней!")
+        await bot.send_message(chat_id=int(user_id), text=f"👑 **ВАМ ВЫДАН PREMIUM НА {days} ДН. в качестве компенсации!** 🎉\nТеперь все ограничения сняты. Удачи на сессии!")
+    except Exception as e:
+        await message.answer(f"Ошибка: {e}. Формат: /give_premium ID ДНИ")
+
+
+
+
+# Команда компенсации попытки: /give_try [USER_ID] [КОЛИЧЕСТВО]
+# Пример: /give_try 1351070481 3
+@router.message(Command("give_try"), F.from_user.id == ADMIN_ID)
+async def admin_give_try(message: Message, bot: Bot):
+    try:
+        _, user_id, count = message.text.split()
+        user = await sync_to_async(TelegramUser.objects.get)(user_id=int(user_id))
+        user.free_attempts_left += int(count)
+        await sync_to_async(user.save)()
+        
+        await message.answer(f"✅ Успешно начислено {count} попыток юзеру `{user_id}`")
+        # Насильно радуем юзера пушом
+        await bot.send_message(chat_id=int(user_id), text=f"🎁 **Администрация начислила вам {count} бонусных бесплатных попыток!** Приносим извинения за временные неудобства. Продолжаем штурм! 🚀")
+    except Exception as e:
+        await message.answer(f"Ошибка: {e}. Формат: /give_try ID КОЛ_ВО")
+
+# Команда компенсации премиума на ДНИ: /give_premium [USER_ID] [ДНИ]
+# Пример: /give_premium 1351070481 1
+@router.message(Command("give_premium"), F.from_user.id == ADMIN_ID)
+async def admin_give_premium(message: Message, bot: Bot):
+    try:
+        _, user_id, days = message.text.split()
+        user = await sync_to_async(TelegramUser.objects.get)(user_id=int(user_id))
+        
+        # Начисляем дни от текущего момента
+        from django.utils import timezone
+        import datetime
+        user.premium_until = timezone.now() + datetime.timedelta(days=int(days))
+        await sync_to_async(user.save)()
+        
+        await message.answer(f"✅ Юзеру `{user_id}` выдан Премиум на {days} дней!")
+        await bot.send_message(chat_id=int(user_id), text=f"👑 **ВАМ ВЫДАН PREMIUM НА {days} ДН. в качестве компенсации!** 🎉\nТеперь все ограничения сняты. Удачи на сессии!")
+    except Exception as e:
+        await message.answer(f"Ошибка: {e}. Формат: /give_premium ID ДНИ")
