@@ -7,7 +7,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram import types
-from asgiref.sync import sync_to_async  # Импортируем для безопасного сохранения модели
+from asgiref.sync import sync_to_async  
+
+# Импортируем модель для прямого свежего обращения к БД
+from quizzes.models import TelegramUser  
 
 # Твои модули
 from utils.ai_engine import generate_quiz_with_ai
@@ -31,10 +34,8 @@ router = Router()
 @router.message(Command("newquiz"))
 @router.message(F.text == "📝 Создать тест")
 async def cmd_new_quiz(message: Message, state: FSMContext):
-    # Достаем юзера из базы данных
     user = await db.get_user(tg_id=message.from_user.id, username=message.from_user.username)
     
-    # Жесткая проверка: если нет премиума, нет попыток и баланс пуст — стопаем!
     if not user.is_premium and user.free_attempts_left <= 0 and user.balance < 3000:
         await message.answer(
             "❌ **Доступ заблокирован! Недостаточно средств.**\n\n"
@@ -43,9 +44,8 @@ async def cmd_new_quiz(message: Message, state: FSMContext):
             "Перейдите в 👤 **Мой профиль**, чтобы пополнить баланс или приобрести Премиум-доступ!",
             parse_mode="Markdown"
         )
-        return  # Прерываем выполнение, стейт не ставится
+        return  
 
-    # Если проверка пройдена, запускаем сценарий
     await state.set_state(QuizCreation.waiting_for_name)
     
     instruction_text = (
@@ -106,9 +106,26 @@ async def handle_document(message: Message, state: FSMContext):
         else:
             raw_text = get_raw_text_from_pdf(file_io)
 
+        # 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: ПРОВЕРКА НА ПРЕДВАРИТЕЛЬНЫЙ ПАРСИНГ ТЕКСТА
+        if not raw_text or len(raw_text.strip()) < 20:
+            await status_msg.delete()
+            await message.answer(
+                "❌ **Ошибка: Не удалось прочитать файл!**\n\n"
+                "Я попытался извлечь текст, но документ оказался пустым или нечитаемым.\n\n"
+                "ℹ️ **Возможные причины:**\n"
+                "1. Внутри файла находится картинка/скан (нет печатного текста).\n"
+                "2. Документ зашифрован или поврежден.\n"
+                "3. Файл весит 0 байт.\n\n"
+                "⚠️ Пожалуйста, отправьте нормальный текстовый документ с лекцией или вопросами.",
+                parse_mode="Markdown"
+            )
+            await state.clear()  # Сбрасываем стейт создания, чтобы не зависать
+            return  # Завершаем хендлер, код ниже (вызов ИИ) НЕ СРАБОТАЕТ!
+
+        # Если текст нормальный, пробуем искать там готовую разметку
         questions = parse_text_logic(raw_text)
 
-        # Если разметки нет — предлагаем ИИ (деньги пока НЕ списываем, спишем при согласии)
+        # Если печатный текст есть, но разметки нет — вот тогда честно предлагаем ИИ
         if not questions:
             await status_msg.delete()
             await state.update_data(raw_text_for_ai=raw_text)
@@ -137,18 +154,19 @@ async def handle_document(message: Message, state: FSMContext):
                 parse_mode="Markdown"
             )
 
-        # --- СПИСАНИЕ №1: ЕСЛИ РАЗМЕТКА БЫЛА В ФАЙЛЕ И ТЕСТ УСПЕШНО СОЗДАН ---
+        # Сохраняем тест в базу данных (если разметка была внутри)
         pack = await db.save_quiz_to_db(user, pack_name, questions)
         
-        # Списываем ресурсы, если нет Премиума
-        if not user.is_premium:
-            if user.free_attempts_left > 0:
-                user.free_attempts_left -= 1
-                await message.answer(f"📉 Использована 1 бесплатная попытка. Осталось: {user.free_attempts_left}")
+        # Списание средств за готовый файл
+        fresh_user = await sync_to_async(TelegramUser.objects.get)(user_id=message.from_user.id)
+        if not fresh_user.is_premium:
+            if fresh_user.free_attempts_left > 0:
+                fresh_user.free_attempts_left -= 1
+                await message.answer(f"📉 Использована 1 бесплатная попытка. Осталось: {fresh_user.free_attempts_left}")
             else:
-                user.balance -= 3000
-                await message.answer(f"🪙 С баланса списано 3 000 сум. Оставшийся баланс: {user.balance:,} сум")
-            await sync_to_async(user.save)()
+                fresh_user.balance -= 3000
+                await message.answer(f"🪙 С баланса списано 3 000 сум. Оставшийся баланс: {fresh_user.balance:,} сум")
+            await sync_to_async(fresh_user.save)()
 
         await status_msg.delete()
         
@@ -219,17 +237,23 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
             await status_msg.delete()
             return await callback.message.answer("❌ ИИ не смог корректно составить вопросы. Попробуй другой файл.")
             
-        # --- СПИСАНИЕ №2: ЕСЛИ ТЕСТ СГЕНЕРИРОВАН ИИ УСПЕШНО ---
         pack = await db.save_quiz_to_db(user, pack_name, questions)
         
-        if not user.is_premium:
-            if user.free_attempts_left > 0:
-                user.free_attempts_left -= 1
-                await callback.message.answer(f"📉 Использована 1 бесплатная попытка. Осталось: {user.free_attempts_left}")
+        fresh_user = await sync_to_async(TelegramUser.objects.get)(user_id=callback.from_user.id)
+        if not fresh_user.is_premium:
+            if fresh_user.free_attempts_left > 0:
+                fresh_user.free_attempts_left -= 1
+                await callback.bot.send_message(
+                    chat_id=callback.from_user.id, 
+                    text=f"📉 Использована 1 бесплатная попытка. Осталось: {fresh_user.free_attempts_left}"
+                )
             else:
-                user.balance -= 3000
-                await callback.message.answer(f"🪙 С баланса списано 3 000 сум. Оставшийся баланс: {user.balance:,} сум")
-            await sync_to_async(user.save)()
+                fresh_user.balance -= 3000
+                await callback.bot.send_message(
+                    chat_id=callback.from_user.id, 
+                    text=f"🪙 С баланса списано 3 000 сум. Оставшийся баланс: {fresh_user.balance:,} сум"
+                )
+            await sync_to_async(fresh_user.save)()
 
         await status_msg.delete()
         
@@ -243,7 +267,8 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
             f"🤖 _Магия ИИ сработала! Вопросы получили варианты ответов и бережно сохранены в твой профиль._"
         )
         
-        await callback.message.answer(
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
             text=success_card,
             reply_markup=get_file_action_menu(pack.id),
             parse_mode="Markdown"
@@ -261,5 +286,5 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
 async def cancel_quiz_creation(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
-    await callback.message.answer("🛑 Создание теста отменено. Ты вернулся в главное меню.")
+    await callback.bot.send_message(chat_id=callback.from_user.id, text="🛑 Создание теста отменено. Ты вернулся в главное меню.")
     await callback.answer()
