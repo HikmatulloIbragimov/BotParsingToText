@@ -9,8 +9,8 @@ class TelegramUser(models.Model):
     
     # --- БАЛАНС И ПОПЫТКИ ---
     balance = models.IntegerField(default=0, verbose_name="Баланс (сум)")
-    has_free_attempt = models.BooleanField(default=True, verbose_name="Есть бесплатная попытка") # Оставляем для старого кода
-    free_attempts_left = models.IntegerField(default=1, verbose_name="Оставшиеся бесплатные попытки") # Наша новая номерация
+    has_free_attempt = models.BooleanField(default=True, verbose_name="Есть бесплатная попытка")
+    free_attempts_left = models.IntegerField(default=1, verbose_name="Оставшиеся бесплатные попытки")
 
     # --- ПРЕМИУМ СТАТУС ---
     is_premium_bool = models.BooleanField(default=False, db_column="is_premium", verbose_name="Премиум статус (устарело)")
@@ -18,24 +18,27 @@ class TelegramUser(models.Model):
 
     @property
     def is_premium(self):
-        """
-        Умная проверка премиума: 
-        Если включен старый флаг ИЛИ дата premium_until еще не прошла — значит у юзера PRO-доступ.
-        """
+        """Умная проверка премиума (ЧТЕНИЕ: user.is_premium)"""
         if self.is_premium_bool:
             return True
         if self.premium_until and self.premium_until > timezone.now():
             return True
         return False
 
+    # 👇 ВОТ ЭТОТ КУСОК МЫ ДОБАВИЛИ ДЛЯ ИСПРАВЛЕНИЯ ОШИБКИ
+    @is_premium.setter
+    def is_premium(self, value):
+        """Позволяет изменять статус (ЗАПИСЬ: user.is_premium = True/False)"""
+        self.is_premium_bool = value
+
     @property
     def premium_days_left(self):
         """Считает, сколько дней подписки осталось"""
         if self.premium_until and self.premium_until > timezone.now():
             delta = self.premium_until - timezone.now()
-            return delta.days + 1  # Округляем в большую сторону, чтобы если осталось 12 часов, писало 1 день
+            return delta.days + 1
         if self.is_premium_bool:
-            return 999 # Если ты руками в админке включил старый флаг — это вечный премиум
+            return 999
         return 0
 
     def __str__(self):
