@@ -8,6 +8,7 @@ from aiogram import Bot
 import random
 from aiogram import F
 from utils.db_api import db
+from typing import Union
 from quizzes.models import Question, TestPack, TestSession
 from keyboards.keyboards import (
     get_quizzes_list_kb, 
@@ -168,12 +169,23 @@ async def handle_poll_answer(poll_answer: PollAnswer):
 
 @router.message(Command("quizzes"))
 @router.message(F.text == "📂 Мои тесты")
-async def show_quizzes(message: Message):
-    user = await db.get_user(message.from_user.id)
+@router.callback_query(F.data == "quizzes")  # <-- Добавили перехват инлайн-кнопки!
+async def show_quizzes(event: Union[Message, CallbackQuery]):
+    # Определяем, кто вызвал хендлер — кнопка или сообщение
+    is_callback = isinstance(event, CallbackQuery)
+    
+    # Достаем id пользователя и объект сообщения в зависимости от типа события
+    user_id = event.from_user.id
+    message = event.message if is_callback else event
+    
+    if is_callback:
+        await event.answer()  # Сразу гасим часики на кнопке «Назад»
+        
+    user = await db.get_user(user_id)
     packs = await db.get_user_packs_with_count(user)
     
+    # 1. Если библиотека пуста
     if not packs:
-        # Сделаем и пустую библиотеку чуть симпатичнее
         empty_text = (
             f"📚 **МОЯ БИБЛИОТЕКА**\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -181,9 +193,11 @@ async def show_quizzes(message: Message):
             f"📝 Нажми кнопку **«Создать тест»** в меню или введи команду /newquiz, "
             f"чтобы загрузить свой первый файл!"
         )
+        if is_callback:
+            return await message.edit_text(empty_text, parse_mode="Markdown")
         return await message.answer(empty_text, parse_mode="Markdown")
     
-    # Твой новый шикарный визуал для списка тестов
+    # 2. Если тесты есть — выводим визуал
     quizzes_text = (
         f"📚 **СПИСОК ТВОИХ ТЕСТОВ**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -192,12 +206,20 @@ async def show_quizzes(message: Message):
         f"👇 _Доступные пакеты_:"
     )
     
-    await message.answer(
-        text=quizzes_text, 
-        reply_markup=get_quizzes_list_kb(packs),
-        parse_mode="Markdown"  # Обязательно добавляем, чтобы жирный шрифт и линии работали!
-    )
-
+    if is_callback:
+        # Если нажали «Назад», плавно меняем текст прямо в старом окне
+        await message.edit_text(
+            text=quizzes_text, 
+            reply_markup=get_quizzes_list_kb(packs),
+            parse_mode="Markdown"
+        )
+    else:
+        # If это команда или обычная кнопка меню — шлем новое сообщение
+        await message.answer(
+            text=quizzes_text, 
+            reply_markup=get_quizzes_list_kb(packs),
+            parse_mode="Markdown"
+        )
 @router.callback_query(F.data.startswith("start_test_"))
 async def start_test_handler(callback: CallbackQuery):
     pack_id = int(callback.data.split("_")[2])
