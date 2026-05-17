@@ -171,9 +171,32 @@ async def handle_poll_answer(poll_answer: PollAnswer):
 async def show_quizzes(message: Message):
     user = await db.get_user(message.from_user.id)
     packs = await db.get_user_packs_with_count(user)
+    
     if not packs:
-        return await message.answer("Библиотека пуста.")
-    await message.answer("Твои тесты:", reply_markup=get_quizzes_list_kb(packs))
+        # Сделаем и пустую библиотеку чуть симпатичнее
+        empty_text = (
+            f"📚 **МОЯ БИБЛИОТЕКА**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"❌ Твоя библиотека пока пуста.\n\n"
+            f"📝 Нажми кнопку **«Создать тест»** в меню или введи команду /newquiz, "
+            f"чтобы загрузить свой первый файл!"
+        )
+        return await message.answer(empty_text, parse_mode="Markdown")
+    
+    # Твой новый шикарный визуал для списка тестов
+    quizzes_text = (
+        f"📚 **СПИСОК ТВОИХ ТЕСТОВ**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📂 Здесь хранятся все сгенерированные пакеты вопросов. "
+        f"Выбери нужный тест ниже, чтобы запустить интерактивный квиз или настроить его:\n\n"
+        f"👇 _Доступные пакеты_:"
+    )
+    
+    await message.answer(
+        text=quizzes_text, 
+        reply_markup=get_quizzes_list_kb(packs),
+        parse_mode="Markdown"  # Обязательно добавляем, чтобы жирный шрифт и линии работали!
+    )
 
 @router.callback_query(F.data.startswith("start_test_"))
 async def start_test_handler(callback: CallbackQuery):
