@@ -385,13 +385,14 @@ async def show_profile(message: Message):
         f"👤 **ТВОЙ ПРОФИЛЬ**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🆔 **ID:** `{user.user_id}`\n"
-        f"🪙 **Баланс:** `{user.balance}` сум\n"
+        f"🪙 **Баланс:** `{user.balance:,}` сум\n"
         f"💎 **Статус:** *{status_text}*\n"
         f"🎁 **Бесплатный тест:** {'Доступен ✅' if user.has_free_attempt else 'Использован ❌'}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Используй кнопки ниже, чтобы протестировать платежную систему Payme 👇"
+        f"Выбирай нужный тариф ниже, чтобы пополнить баланс и мгновенно переводить лекции в тесты! 👇"
     )
     
+    # ИСПРАВЛЕНО: Добавили четкие callback_data для нашего нового payment.py
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🪙 Пополнить на 3 000 сум", callback_data="test_pay_3k")],
         [InlineKeyboardButton(text="💎 Купить Премиум (10 000 сум)", callback_data="test_pay_10k")]

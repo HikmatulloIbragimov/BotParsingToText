@@ -1,108 +1,169 @@
-import os
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, LabeledPrice, PreCheckoutQuery, Message
-from asgiref.sync import sync_to_async
 import random
-# Проверь этот импорт! Укажи правильный путь к твоей Django-модели
-from quizzes.models import TelegramUser 
-
+from aiogram import Router, F, Bot
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from asgiref.sync import sync_to_async
+from quizzes.models import TelegramUser  # Проверь правильность импорта модели!
+import os
 router = Router()
 
-# Беру токен из переменных окружения. Если локально его нет, подставится временная заглушка
-PAYMENT_TOKEN = os.getenv("PAYME_TEST_TOKEN")
-# ==========================================
-# 1. ВЫСТАВЛЕНИЕ СЧЕТОВ (ИНВОЙСЫ)
-# ==========================================
+# ТВОЙ ТЕЛЕГРАМ ID (Узнай его в @userinfobot)
+ADMIN_ID = os.getenv("ADMIN_ID")
 
-# Срабатывает при нажатии кнопки "Пополнить баланс на 3 000 сум" в твоем профиле
-@router.callback_query(F.data == "test_pay_3k")
-async def process_pay_3k(callback: CallbackQuery):
-    # Удаляем старое сообщение профиля, чтобы не засорять чат
+class PaymentStates(StatesGroup):
+    wait_screenshot = State()
+
+# --- 1. ВЫБОР ТАРИФА И ВЫВОД ИНСТРУКЦИИ ---
+@router.callback_query(F.data.startswith("test_pay_"))
+async def process_payment_choice(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     
-    # Генерируем случайный код для проверки
-    pay_code = random.randint(1000, 9999)
+    # Определяем сумму
+    amount = 3000 if "3k" in callback.data else 10000
+    await state.update_data(amount=amount)
     
-    text = (
-        f"💳 **ПОПОЛНЕНИЕ КОШЕЛЬКА — 3 000 сум**\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Переведи **3 000 сум** на карту:\n"
-        f"`986000500343425` (Карта Uzcard/Humo)\n\n"
-        f"⚠️ **КРИТИЧЕСКИ ВАЖНО:**\n"
-        f"В комментарии к переводу (в приложении Payme/Click) ОБЯЗАТЕЛЬНО укажи этот код: **{pay_code}**\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"После отправки перевода пришли скриншот чека админу: @твой_юзернейм\n"
-        f"Баланс зачислится автоматически в течение 5 минут! 🚀"
-    )
-    await callback.message.answer(text, parse_mode="Markdown")
+    await send_payment_instruction(callback.message, amount, state)
     await callback.answer()
 
-@router.callback_query(F.data == "test_pay_10k")
-async def process_pay_10k(callback: CallbackQuery):
+
+# --- ФУНКЦИЯ ДЛЯ ПОВТОРНОГО ВЫЗОВА КАРТЫ (ЧТОБЫ НЕ ДУБЛИРОВАТЬ КОД) ---
+async def send_payment_instruction(message: Message, amount: int, state: FSMContext):
+    text = (
+        f"💳 **ПОПОЛНЕНИЕ КОШЕЛЬКА — {amount:,} сум**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Переведи **{amount:,} сум** на карту:\n"
+        f"`986000500343425` (Твоя Карта Uzcard/Humo)\n\n"
+        f"📸 **ШАГ ДЛЯ АКТИВАЦИИ:**\n"
+        f"Оплати в Payme/Click, сделай **скриншот чека** и отправь его прямо сюда (картинкой) в этот чат. 👇\n\n"
+        f"Я мгновенно перенаправлю его админу на проверку!"
+    )
+    await message.answer(text, parse_mode="Markdown")
+    await state.set_state(PaymentStates.wait_screenshot)
+
+
+# --- 2. ПРИЕМ СКРИНШОТА И ОТПРАВКА АДМИНУ ---
+@router.message(PaymentStates.wait_screenshot, F.photo)
+async def handle_screenshot(message: Message, state: FSMContext, bot: Bot):
+    user_data = await state.get_data()
+    amount = user_data.get("amount", 3000)
+    await state.clear()
+    
+    await message.answer("♻️ **Ваш чек отправлен на проверку админу.**\nЯ проверяю поступления очень быстро. Как только админ подтвердит, баланс обновится автоматически! Побудь на связи ⏳")
+    
+    # Кнопки для тебя в админ-чате
+    admin_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Подтвердить оплату", callback_data=f"adm_confirm_{message.from_user.id}_{amount}"),
+            InlineKeyboardButton(text="❌ Отклонить чек", callback_data=f"adm_decline_{message.from_user.id}_{amount}")
+        ]
+    ])
+    
+    await bot.send_photo(
+        chat_id=ADMIN_ID,
+        photo=message.photo[-1].file_id,
+        caption=(
+            f"💰 **НОВЫЙ ПЛАТЕЖ НА ПРОВЕРКУ!**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Студент:** {message.from_user.full_name}\n"
+            f"🆔 **ID:** `{message.from_user.id}`\n"
+            f"💵 **Сумма к зачислению:** `{amount:,}` сум\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Проверь пуш/историю в банке и вынеси вердикт: 👇"
+        ),
+        reply_markup=admin_kb,
+        parse_mode="Markdown"
+    )
+
+
+# --- 3. ХЕНДЛЕР ПОДТВЕРЖДЕНИЯ (ДЛЯ ТЕБЯ) ---
+@router.callback_query(F.data.startswith("adm_confirm_"))
+async def admin_confirm_pay(callback: CallbackQuery, bot: Bot):
+    _, _, user_id, amount = callback.data.split("_")
+    user_id = int(user_id)
+    amount = int(amount)
+    
+    try:
+        user = await sync_to_async(TelegramUser.objects.get)(user_id=user_id)
+        
+        if amount == 10000:
+            user.is_premium = True
+            success_text = (
+                f"🎉 **ПОЗДРАВЛЯЕМ! ОПЛАТА ПРОШЛА УСПЕШНО!** 👑\n\n"
+                f"Вам успешно активирован **ПРЕМИУМ-ДОСТУП**!\n"
+                f"Теперь вы можете загружать огромные файлы и генерировать тесты без ограничений. "
+                f"Порвите эту сессию на изи! 🎓🚀\n\n"
+                f"Проверьте статус в /profile"
+            )
+        else:
+            user.balance += amount
+            success_text = (
+                f"🎉 **БАЛАНС УСПЕШНО ПОПОЛНЕН!** 🪙\n\n"
+                f"На ваш счет зачислено `{amount:,}` сум.\n"
+                f"Спасибо за доверие! Скорее загружайте свои документы и готовьтесь к экзаменам в один клик! 🧠🔥\n\n"
+                f"Текущий баланс доступен в /profile"
+            )
+            
+        await sync_to_async(user.save)()
+        
+        # Обновляем сообщение у тебя в админке
+        await callback.message.edit_caption(
+            caption=callback.message.caption + "\n\n🟢 **ПРИНЯТО! Баланс/Премиум успешно начислен юзеру.**", 
+            reply_markup=None
+        )
+        
+        # Отправляем радостный пуш студенту
+        await bot.send_message(chat_id=user_id, text=success_text, parse_mode="Markdown")
+        
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка при обращении к базе данных Django: {e}")
+        
+    await callback.answer()
+
+
+# --- 4. ХЕНДЛЕР ОТКЛОНЕНИЯ С КНОПКОЙ «ПОВТОРИТЬ» (ДЛЯ ТЕБЯ И СТУДЕНТА) ---
+@router.callback_query(F.data.startswith("adm_decline_"))
+async def admin_decline_pay(callback: CallbackQuery, bot: Bot):
+    _, _, user_id, amount = callback.data.split("_")
+    user_id = int(user_id)
+    amount = int(amount)
+    
+    # Фиксируем отмену в твоем чате
+    await callback.message.edit_caption(
+        caption=callback.message.caption + "\n\n🔴 **ОТКЛОНЕНО! Юзеру отправлено уведомление об ошибке.**", 
+        reply_markup=None
+    )
+    
+    # Создаем кнопку «Заново» для студента
+    retry_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Попробовать заново", callback_data=f"retry_pay_{amount}")]
+    ])
+    
+    # Пишем вежливый отлуп студенту
+    fail_text = (
+        f"⚠️ **Упс! Транзакция не подтвердилась.**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Наш админ проверил выписку, но не нашел платежа на сумму `{amount:,}` сум.\n\n"
+        f"❓ **Возможные причины:**\n"
+        f"• Деньги еще не дошли (задержка банка).\n"
+        f"• Вы прикрепили не тот файл или старый чек.\n"
+        f"• Оплата не прошла до конца.\n\n"
+        f"Вы уверены, что отправили правильный файл чека? Пожалуйста, проверьте и попробуйте еще раз. 👇"
+    )
+    
+    await bot.send_message(chat_id=user_id, text=fail_text, reply_markup=retry_kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+# --- 5. КРУГ ЗАМЫКАЕТСЯ: ЮЗЕР ТЫКАЕТ «ПОПРОБОВАТЬ ЗАНОВО» ---
+@router.callback_query(F.data.startswith("retry_pay_"))
+async def retry_payment_process(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     
-    pay_code = random.randint(1000, 9999)
+    # Вытаскиваем сумму из callback_data
+    amount = int(callback.data.split("_")[2])
+    await state.update_data(amount=amount)
     
-    text = (
-        f"💎 **КУПИТЬ ПРЕМИУМ — 10 000 сум**\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Переведи **10 000 сум** на карту:\n"
-        f"`986000500343425` (Карта Uzcard/Humo)\n\n"
-        f"⚠️ **КРИТИЧЕСКИ ВАЖНО:**\n"
-        f"В комментарии к переводу ОБЯЗАТЕЛЬНО укажи этот код: **{pay_code}**\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"После отправки перевода пришли скриншот чека админу: @твой_юзернейм\n"
-        f"Премиум активируется сразу после проверки! 👑"
-    )
-    await callback.message.answer(text, parse_mode="Markdown")
+    # Снова выводим карту и запускаем стейт ожидания
+    await send_payment_instruction(callback.message, amount, state)
     await callback.answer()
-
-# ==========================================
-# 2. СИСТЕМНОЕ ПОДТВЕРЖДЕНИЕ ТЕЛЕГРАМУ (ОК)
-# ==========================================
-@router.pre_checkout_query()
-async def checkout_confirm(pre_checkout_query: PreCheckoutQuery):
-    # Обязательно отвечаем Телеграму True, иначе платеж зависнет с ошибкой
-    await pre_checkout_query.answer(ok=True)
-
-
-# ==========================================
-# 3. ФИНАЛ: ЛОВИМ УСПЕШНЫЙ ПЛАТЕЖ И ОБНОВЛЯЕМ ДЖАНГО
-# ==========================================
-@router.message(F.successful_payment)
-async def success_payment_handler(message: Message):
-    # Извлекаем скрытую метку, которую мы вешали в инвойсе выше
-    payload = message.successful_payment.invoice_payload
-    
-    # Вытаскиваем юзера из Django ORM асинхронно
-    user = await sync_to_async(TelegramUser.objects.get)(user_id=message.from_user.id)
-    
-    # Вариант А: Юзер покупал поштучный баланс
-    if payload == "deposit_3000_payload":
-        user.balance += 3000
-        await sync_to_async(user.save)() # Сохраняем изменения в PostgreSQL
-        
-        await message.answer(
-            f"🎉 **ОПЛАТА ПРОШЛА УСПЕШНО!**\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🪙 На твой баланс зачислено `3 000` сум.\n"
-            f"💰 Текущий счет в профиле: `{user.balance:,}` сум.",
-            parse_mode="Markdown"
-        )
-        
-    # Вариант Б: Юзер купил подписку на месяц
-    elif payload == "premium_10000_payload":
-        from django.utils import timezone
-        from datetime import timedelta
-        
-        user.is_premium = True
-        user.premium_until = timezone.now() + timedelta(days=30)
-        await sync_to_async(user.save)() # Сохраняем изменения в PostgreSQL
-        
-        await message.answer(
-            f"💎 **МАГИЯ ИИ АКТИВИРОВАНА!**\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎉 Подписка PRO успешно куплена на 30 дней!\n"
-            f"🚀 Все ограничения ИИ полностью стерты. Проверяй профиль!",
-            parse_mode="Markdown"
-        )
