@@ -376,12 +376,12 @@ async def show_quizzes_list(callback: CallbackQuery):
 @router.message(Command("profile"))
 @router.message(F.text == "👤 Мой профиль")
 async def show_profile(message: Message):
-    # Находим юзера в базе Джанго асинхронно
-    user = await sync_to_async(TelegramUser.objects.get)(user_id=message.from_user.id)
+    # 🔥 ИСПРАВЛЕНО: Вместо TelegramUser.objects.get используем твой db.get_user
+    # Если юзера нет в базе, этот метод сам его создаст без ошибок!
+    user = await db.get_user(tg_id=message.from_user.id, username=message.from_user.username)
     
     # 1. Проверка премиума и вывод оставшихся дней
     if user.is_premium:
-        # Если дней 999 (поставили флаг в админке), пишем просто PRO
         if user.premium_days_left > 100:
             status_text = "✨ PRO-Доступ 👑"
         else:
@@ -389,13 +389,13 @@ async def show_profile(message: Message):
     else:
         status_text = "👁 Обычный"
     
-    # 2. Проверка бесплатных попыток (выводим количество, если они есть)
+    # 2. Проверка бесплатных попыток
     if user.free_attempts_left > 0:
         free_test_text = f"Доступно: {user.free_attempts_left} ✅"
     else:
         free_test_text = "Использован ❌"
     
-    # Твой красивый шаблон, но с динамическими данными
+    # Шаблон профиля
     profile_card = (
         f"👤 **ТВОЙ ПРОФИЛЬ**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -407,7 +407,6 @@ async def show_profile(message: Message):
         f"Выбирай нужный тариф ниже, чтобы пополнить баланс и мгновенно переводить лекции в тесты! 👇"
     )
     
-    # Кнопки с правильными callback_data для нового payment.py
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🪙 Пополнить на 3 000 сум", callback_data="test_pay_3k")],
         [InlineKeyboardButton(text="💎 Купить Премиум (10 000 сум)", callback_data="test_pay_10k")]
