@@ -195,6 +195,7 @@ async def handle_document(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "confirm_ai_generation")
 async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     user_data = await state.get_data()
     raw_text = user_data.get("raw_text_for_ai")
     pack_name = user_data.get("quiz_name")
