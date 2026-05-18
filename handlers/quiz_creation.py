@@ -236,6 +236,7 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
         
         # Отправляем этот аккуратный пакет ИИ
         ai_output = await generate_quiz_with_ai(safe_text)
+        print("\n" + "═"*40 + "\n[⚠️ DEBUG] ЧТО ОТВЕТИЛ ИИ:\n", ai_output, "\n" + "═"*40 + "\n")
         
         await status_msg.edit_text(
             "🧪 **Синтезирую вопросы и упаковываю варианты...**\n"
