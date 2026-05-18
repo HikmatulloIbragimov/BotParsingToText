@@ -14,7 +14,7 @@ def extract_text_from_pdf(file_stream):
 
 def parse_text_logic(text):
     questions = []
-    # Делим на блоки по +++++ или по тройному переносу
+    # Делим на блоки по +++++ или по тройному переносу строки
     blocks = re.split(r'\+{3,}|\n\n\n', text)
     
     for block in blocks:
@@ -28,21 +28,19 @@ def parse_text_logic(text):
         question_parts = []
         option_lines = []
         
-        # Нам нужно понять, где заканчивается вопрос и начинаются ответы.
-        # Все строки ДО первой строки, содержащей '#' или явные маркеры ответов — это ВОПРОС.
+        # Флаг сбора: True — собираем вопрос, False — пошли ответы
         is_collecting_question = True
         
         for line in lines:
-            if line.startswith('='): 
-                continue # Игнорим разделители
+            # Если строка — это разделитель ответов =====, то вопрос ТОЧНО закончился
+            if line.startswith('='):
+                is_collecting_question = False
+                continue # Сам разделитель нам в ответах не нужен
                 
-            # Если мы собирали вопрос, но наткнулись на решетку (#) — значит, вопрос кончился, пошли ответы!
+            # Если разделителя не было, но строка начинается с # — это тоже стопроцентный ответ
             if is_collecting_question and line.startswith('#'):
                 is_collecting_question = False
-                
-            # Дополнительная эвристика: если строка короткая и мы уже собрали массивный вопрос, 
-            # либо если есть маркеры вроде A), B), 1) — можно тоже переключать. Но решетка — главный якорь.
-            
+
             if is_collecting_question:
                 question_parts.append(line)
             else:
@@ -50,8 +48,14 @@ def parse_text_logic(text):
                 
         # Склеиваем весь вопрос в одну строку через пробел
         full_question_text = " ".join(question_parts)
-        # Очищаем от цифр в начале (например, "5. Вопрос" -> "Вопрос") и режем под лимит TG
-        question_text = re.sub(r'^\d+[\s.)]+', '', full_question_text).replace('#', '').strip()[:255]
+        
+        # Очищаем от цифр в начале (например, "5. Вопрос" -> "Вопрос")
+        question_text = re.sub(r'^\d+[\s.)]+', '', full_question_text).replace('#', '').strip()
+        
+        # Красиво режем под лимит Telegram (300 символов для обычных опросов, но лучше с запасом 255), 
+        # добавляя три точки в конце, если текст оборвался
+        if len(question_text) > 255:
+            question_text = question_text[:252] + "..."
         
         options = []
         correct_id = 0
@@ -59,7 +63,11 @@ def parse_text_logic(text):
         # Обрабатываем собранные строки ответов
         for raw_line in option_lines:
             is_correct = raw_line.startswith('#')
-            clean_opt = raw_line.replace('#', '').strip()[:100] # Режем до 100 символов (Лимит TG)
+            clean_opt = raw_line.replace('#', '').strip()
+            
+            # Лимит Telegram на длину одного ответа — строго 100 символов
+            if len(clean_opt) > 100:
+                clean_opt = clean_opt[:97] + "..."
             
             if clean_opt:
                 if is_correct:
@@ -67,10 +75,10 @@ def parse_text_logic(text):
                 options.append(clean_opt)
             
             if len(options) >= 10: 
-                break # Лимит TG: 10 вариантов
+                break # Лимит Telegram: максимум 10 вариантов в одном опреосе
 
-        # Если собрали жизнеспособный тест — добавляем
-        if len(options) >= 2:
+        # Если собрали жизнеспособный тест (есть вопрос и хотя бы 2 ответа) — добавляем
+        if len(options) >= 2 and question_text:
             questions.append({
                 "question": question_text,
                 "options": options,
