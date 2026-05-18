@@ -1,6 +1,7 @@
 import io
 import logging
 import re
+import json  # Добавили стандартный модуль для работы с JSON
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -22,6 +23,7 @@ from keyboards.keyboards import (
 )
 
 # Импортируем функции из parsers.py 
+# (parse_text_logic остается здесь, так как он нужен ниже для обработки файлов с готовой разметкой)
 from utils.parsers import (
     extract_text_from_docx as get_raw_text_from_docx, 
     extract_text_from_pdf as get_raw_text_from_pdf, 
@@ -121,7 +123,7 @@ async def handle_document(message: Message, state: FSMContext):
             await state.clear()  # Сбрасываем стейт создания, чтобы не зависать
             return  # Завершаем хендлер, код ниже (вызов ИИ) НЕ СРАБОТАЕТ!
 
-        # Если текст нормальный, пробуем искать там готовую разметку
+        # Если текст нормальный, пробуем искать там готовую разметку (для ручных файлов пользователей)
         questions = parse_text_logic(raw_text)
 
         # Если печатный текст есть, но разметки нет — вот тогда честно предлагаем ИИ
@@ -153,7 +155,7 @@ async def handle_document(message: Message, state: FSMContext):
                 parse_mode="Markdown"
             )
 
-        # Сохраняем тест в базу данных (если разметка была внутри)
+        # Сохраняем тест в базу данных (если разметка была внутри ручного файла)
         pack = await db.save_quiz_to_db(user, pack_name, questions)
         
         # Списание средств за готовый файл
@@ -218,13 +220,11 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
     
     try:
         # 🔥 УМНАЯ ОЧИСТКА И ОБРЕЗКА ПО ВОПРОСАМ (СТРОКАМ) 🔥
-        # Разбиваем весь текст из файла на отдельные строки и убираем пустые
         all_lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
         
-        # Берем только первые 15 вопросов из файла для стабильной генерации без обрывов токенов
+        # Берем только первые 15 вопросов из файла для стабильной генерации
         target_lines = all_lines[:15]
         
-        # Склеиваем их обратно в текст для отправки ИИ
         safe_text = "\n".join(target_lines)
         
         await status_msg.edit_text(
@@ -244,11 +244,12 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
             parse_mode="Markdown"
         )
         
-        # 🔥 МЕНЯЕМ ТЕКСТОВЫЙ ПАРСЕР НА БУЛЛЕТПРУФ JSON ПАРСЕР 🔥
-        import json
+        # 🔥 ВМЕСТО parse_text_logic ИСПОЛЬЗУЕМ ВСТРОЕННЫЙ JSON ПАРСЕР 🔥
         try:
-            # На случай, если ИИ всё-таки обернул JSON в теги ```json ... ```, очищаем их
+            # На случай, если ИИ вопреки запрету обернул JSON в теги ```json ... ```, очищаем их
             clean_output = ai_output.replace("```json", "").replace("```", "").strip()
+            
+            # Превращаем JSON-строку от ИИ сразу в готовый список словарей Python!
             raw_questions = json.loads(clean_output)
             
             if not isinstance(raw_questions, list):
@@ -264,10 +265,11 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
                 pass
             return await callback.bot.send_message(
                 chat_id=callback.from_user.id, 
-                text="❌ ИИ не смог корректно структурировать ответ в JSON. Попробуй еще раз."
+                text="❌ ИИ не смог корректно составить вопросы. Попробуй другой файл."
             )
 
-        # 🔥 ДАЛЬШЕ ИДЕТ ТВОЙ СТАРЫЙ ФИКС С ВАЛИДАЦИЕЙ ТИПОВ ДАННЫХ 🔥
+        # 🔥 ВОТ ОН — ФИКС ОШИБКИ ВАЛИДАЦИИ ДАННЫХ ИИ 🔥
+        # Принудительно очищаем данные и переводим correct_option_id строго в тип INT
         validated_questions = []
         for q in raw_questions:
             try:
