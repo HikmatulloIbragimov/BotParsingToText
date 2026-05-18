@@ -21,8 +21,10 @@ def parse_text_logic(text):
         # Чистим блок от пустых строк
         lines = [line.strip() for line in block.split('\n') if line.strip()]
         
-        # В блоке ОБЯЗАТЕЛЬНО должен быть символ '#' (правильный ответ) и хотя бы 2 строки
-        if len(lines) < 2 or '#' not in block:
+        # 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА ДЛЯ ИГНОРИРОВАНИЯ ЗАГОЛОВКОВ:
+        # Если в блоке нет разделителя вариантов '=====' или решетки '#',
+        # значит это просто текст (вводный заголовок курса, мусор превью и т.д.) — пропускаем его!
+        if '=====' not in block or '#' not in block or len(lines) < 2:
             continue
             
         question_parts = []
@@ -37,7 +39,7 @@ def parse_text_logic(text):
                 is_collecting_question = False
                 continue # Сам разделитель нам в ответах не нужен
                 
-            # Если разделителя не было, но строка начинается с # — это тоже стопроцентный ответ
+            # Если разделителя вдруг не было, но строка начинается с # — это тоже стопроцентный ответ
             if is_collecting_question and line.startswith('#'):
                 is_collecting_question = False
 
@@ -52,8 +54,7 @@ def parse_text_logic(text):
         # Очищаем от цифр в начале (например, "5. Вопрос" -> "Вопрос")
         question_text = re.sub(r'^\d+[\s.)]+', '', full_question_text).replace('#', '').strip()
         
-        # Красиво режем под лимит Telegram (300 символов для обычных опросов, но лучше с запасом 255), 
-        # добавляя три точки в конце, если текст оборвался
+        # Красиво режем под лимит Telegram (с запасом 255), добавляя три точки в конце
         if len(question_text) > 255:
             question_text = question_text[:252] + "..."
         
@@ -75,7 +76,7 @@ def parse_text_logic(text):
                 options.append(clean_opt)
             
             if len(options) >= 10: 
-                break # Лимит Telegram: максимум 10 вариантов в одном опреосе
+                break # Лимит Telegram: максимум 10 вариантов в одном опросе
 
         # Если собрали жизнеспособный тест (есть вопрос и хотя бы 2 ответа) — добавляем
         if len(options) >= 2 and question_text:
