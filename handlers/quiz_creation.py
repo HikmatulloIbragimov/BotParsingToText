@@ -223,7 +223,7 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
         all_lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
         
         # Берем только первые 15 вопросов из файла для стабильной генерации
-        target_lines = all_lines[:15]
+        target_lines = all_lines[:300]
         
         safe_text = "\n".join(target_lines)
         
