@@ -1,10 +1,11 @@
 from asgiref.sync import sync_to_async
-import logging
+from django.db import db as django_db
 from quizzes.models import TelegramUser, TestPack, Question, TestSession
 class DBApi:
     @staticmethod
     async def get_user(tg_id, username=None): # <--- УБРАЛ self
         try:
+            await sync_to_async(django_db.close_old_connections)()
             numeric_id = int(tg_id) 
             clean_username = str(username) if username else "unknown"
 
