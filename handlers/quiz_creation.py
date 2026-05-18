@@ -217,15 +217,24 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
         pass
     
     try:
-        safe_text = raw_text[:10000]
+        # 🔥 УМНАЯ ОЧИСТКА И ОБРЕЗКА ПО ВОПРОСАМ (СТРОКАМ) 🔥
+        # Разбиваем весь текст из файла на отдельные строки и убираем пустые
+        all_lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
+        
+        # Берем только первые 15 вопросов из файла для стабильной генерации без обрывов токенов
+        target_lines = all_lines[:15]
+        
+        # Склеиваем их обратно в текст для отправки ИИ
+        safe_text = "\n".join(target_lines)
         
         await status_msg.edit_text(
-            "🧠 **ИИ проводит глубокий анализ вопросов...**\n"
-            "⏳ `[■■■■■□□□□□] 50%` \n\n"
-            "ℹ️ _Ищем правильные ответы и генерируем ложные варианты..._",
+            f"🧠 **ИИ проводит глубокий анализ вопросов (Взято первых: {len(target_lines)})...**\n"
+            f"⏳ `[■■■■■□□□□□] 50%` \n\n"
+            f"ℹ️ _Ищем правильные ответы и генерируем ложные варианты..._",
             parse_mode="Markdown"
         )
         
+        # Отправляем этот аккуратный пакет ИИ
         ai_output = await generate_quiz_with_ai(safe_text)
         
         await status_msg.edit_text(
