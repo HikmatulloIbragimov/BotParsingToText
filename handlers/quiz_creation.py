@@ -192,12 +192,13 @@ async def handle_document(message: Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "confirm_ai_generation")
-async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext):
+async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
     user_data = await state.get_data()
     raw_text = user_data.get("raw_text_for_ai")
     pack_name = user_data.get("quiz_name")
     
     if not raw_text:
+        await callback.answer()
         return await callback.message.answer("❌ Ошибка: данные файла потеряны. Начни создание заново.")
     
     user = await db.get_user(tg_id=callback.from_user.id, username=callback.from_user.username)
@@ -209,7 +210,11 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
         parse_mode="Markdown"
     )
     
-    await callback.message.delete()
+    # Чтобы не ловить ошибки, если сообщение уже удалено
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     
     try:
         safe_text = raw_text[:10000]
@@ -230,14 +235,38 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
             parse_mode="Markdown"
         )
         
-        questions = parse_text_logic(ai_output)
+        # Парсим полученный от ИИ текст в массив словарей
+        raw_questions = parse_text_logic(ai_output)
         
-        if not questions:
-            await status_msg.delete()
-            return await callback.message.answer("❌ ИИ не смог корректно составить вопросы. Попробуй другой файл.")
+        if not raw_questions:
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            return await callback.bot.send_message(
+                chat_id=callback.from_user.id, 
+                text="❌ ИИ не смог корректно составить вопросы. Попробуй другой файл."
+            )
+
+        # 🔥 ВОТ ОН — ФИКС ОШИБКИ ВАЛИДАЦИИ ДАННЫХ ИИ 🔥
+        # Принудительно очищаем данные и переводим correct_option_id строго в тип INT
+        validated_questions = []
+        for q in raw_questions:
+            try:
+                correct_id = int(q.get("correct_option_id", 0))
+            except (ValueError, TypeError):
+                correct_id = 0  # Дефолтное значение, если прилетел совсем мусор
+                
+            validated_questions.append({
+                "question": str(q.get("question", ""))[:255].strip(),
+                "options": [str(opt)[:100].strip() for opt in q.get("options", []) if opt],
+                "correct_option_id": correct_id  # Теперь тут железно целое число!
+            })
             
-        pack = await db.save_quiz_to_db(user, pack_name, questions)
+        # Сохраняем уже валидированные и безопасные вопросы в базу
+        pack = await db.save_quiz_to_db(user, pack_name, validated_questions)
         
+        # Списание попыток / баланса
         fresh_user = await sync_to_async(TelegramUser.objects.get)(user_id=callback.from_user.id)
         if not fresh_user.is_premium:
             if fresh_user.free_attempts_left > 0:
@@ -254,13 +283,16 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
                 )
             await sync_to_async(fresh_user.save)()
 
-        await status_msg.delete()
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
         
         success_card = (
             f"🎉 **ПАКЕТ ТЕСТОВ УСПЕШНО СОЗДАН!**\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📦 **Название пакета:** *{pack_name}*\n"
-            f"📊 **Сгенерировано через ИИ:** `{len(questions)}` шт.\n"
+            f"📊 **Сгенерировано через ИИ:** `{len(validated_questions)}` шт.\n"
             f"🔑 **Статус:** `Полностью готов` ✅\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🤖 _Магия ИИ сработала! Вопросы получили варианты ответов и бережно сохранены в твой профиль._"
@@ -276,14 +308,23 @@ async def process_ai_generation(callback: types.CallbackQuery, state: FSMContext
         
     except Exception as e:
         logging.error(f"Ошибка ИИ генерации: {e}")
-        await status_msg.edit_text(f"❌ Произошла ошибка при работе ИИ: {str(e)[:100]}")
+        try:
+            await status_msg.edit_text(f"❌ Произошла ошибка при работе ИИ: {str(e)[:100]}")
+        except Exception:
+            await callback.bot.send_message(
+                chat_id=callback.from_user.id, 
+                text=f"❌ Произошла ошибка при работе ИИ: {str(e)[:100]}"
+            )
         
     await callback.answer()
 
 
 @router.callback_query(F.data == "cancel_quiz_creation")
-async def cancel_quiz_creation(callback: types.CallbackQuery, state: FSMContext):
+async def cancel_quiz_creation(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.bot.send_message(chat_id=callback.from_user.id, text="🛑 Создание теста отменено. Ты вернулся в главное меню.")
     await callback.answer()
