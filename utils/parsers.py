@@ -14,6 +14,13 @@ def extract_text_from_pdf(file_stream):
 
 def parse_text_logic(text):
     questions = []
+    
+    # 🔥 ШАГ 0: Если в самом начале текста торчит этот упрямый заголовок, 
+    # мы его просто вырезаем из строки до того, как начнётся основной парсинг!
+    header_trash = "Multiple-choice questions (MCQs) in “System for Combating Economic Crime” course"
+    if header_trash in text:
+        text = text.replace(header_trash, "").strip()
+        
     # Делим на блоки по +++++ или по тройному переносу строки
     blocks = re.split(r'\+{3,}|\n\n\n', text)
     
@@ -21,9 +28,7 @@ def parse_text_logic(text):
         # Чистим блок от пустых строк
         lines = [line.strip() for line in block.split('\n') if line.strip()]
         
-        # 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА ДЛЯ ИГНОРИРОВАНИЯ ЗАГОЛОВКОВ:
-        # Если в блоке нет разделителя вариантов '=====' или решетки '#',
-        # значит это просто текст (вводный заголовок курса, мусор превью и т.д.) — пропускаем его!
+        # Если в блоке нет разделителя вариантов '=====' или решетки '#', пропускаем
         if '=====' not in block or '#' not in block or len(lines) < 2:
             continue
             
@@ -37,7 +42,7 @@ def parse_text_logic(text):
             # Если строка — это разделитель ответов =====, то вопрос ТОЧНО закончился
             if line.startswith('='):
                 is_collecting_question = False
-                continue # Сам разделитель нам в ответах не нужен
+                continue
                 
             # Если разделителя вдруг не было, но строка начинается с # — это тоже стопроцентный ответ
             if is_collecting_question and line.startswith('#'):
@@ -54,6 +59,11 @@ def parse_text_logic(text):
         # Очищаем от цифр в начале (например, "5. Вопрос" -> "Вопрос")
         question_text = re.sub(r'^\d+[\s.)]+', '', full_question_text).replace('#', '').strip()
         
+        # 🔥 ДОПОЛНИТЕЛЬНАЯ ПОДСТРАХОВКА: Если заголовок всё-таки пролез сквозь replace,
+        # и текст начинается с "What represents...", убираем мусор перед ним
+        if "What represents" in question_text and not question_text.startswith("What represents"):
+            question_text = question_text[question_text.index("What represents"):]
+
         # Красиво режем под лимит Telegram (с запасом 255), добавляя три точки в конце
         if len(question_text) > 255:
             question_text = question_text[:252] + "..."
@@ -76,7 +86,7 @@ def parse_text_logic(text):
                 options.append(clean_opt)
             
             if len(options) >= 10: 
-                break # Лимит Telegram: максимум 10 вариантов в одном опросе
+                break
 
         # Если собрали жизнеспособный тест (есть вопрос и хотя бы 2 ответа) — добавляем
         if len(options) >= 2 and question_text:
