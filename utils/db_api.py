@@ -1,11 +1,14 @@
 from asgiref.sync import sync_to_async
-from django.db import db as django_db
+import logging
+from django.db import connections
 from quizzes.models import TelegramUser, TestPack, Question, TestSession
 class DBApi:
     @staticmethod
-    async def get_user(tg_id, username=None): # <--- УБРАЛ self
+    async def get_user(tg_id, username=None):
         try:
-            await sync_to_async(django_db.close_old_connections)()
+            # Принудительно закрываем сломанные/мертвые коннекты перед запросом
+            await sync_to_async(connections.close_all)()
+            
             numeric_id = int(tg_id) 
             clean_username = str(username) if username else "unknown"
 
@@ -15,7 +18,7 @@ class DBApi:
             )
             return user
         except Exception as e:
-            print(f"!!! ОШИБКА В DB_API: tg_id={tg_id}, username={username}")
+            logging.error(f"Ошибка в get_user: {e}")
             raise e
 
     @staticmethod
