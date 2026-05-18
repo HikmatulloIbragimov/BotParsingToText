@@ -236,7 +236,6 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
         
         # Отправляем этот аккуратный пакет ИИ
         ai_output = await generate_quiz_with_ai(safe_text)
-        print("\n" + "═"*40 + "\n[⚠️ DEBUG] ЧТО ОТВЕТИЛ ИИ:\n", ai_output, "\n" + "═"*40 + "\n")
         
         await status_msg.edit_text(
             "🧪 **Синтезирую вопросы и упаковываю варианты...**\n"
@@ -245,8 +244,18 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
             parse_mode="Markdown"
         )
         
-        # Парсим полученный от ИИ текст в массив словарей
-        raw_questions = parse_text_logic(ai_output)
+        # 🔥 МЕНЯЕМ ТЕКСТОВЫЙ ПАРСЕР НА БУЛЛЕТПРУФ JSON ПАРСЕР 🔥
+        import json
+        try:
+            # На случай, если ИИ всё-таки обернул JSON в теги ```json ... ```, очищаем их
+            clean_output = ai_output.replace("```json", "").replace("```", "").strip()
+            raw_questions = json.loads(clean_output)
+            
+            if not isinstance(raw_questions, list):
+                raw_questions = []
+        except Exception as json_e:
+            logging.error(f"Ошибка парсинга JSON от ИИ: {json_e}")
+            raw_questions = []
         
         if not raw_questions:
             try:
@@ -255,11 +264,10 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
                 pass
             return await callback.bot.send_message(
                 chat_id=callback.from_user.id, 
-                text="❌ ИИ не смог корректно составить вопросы. Попробуй другой файл."
+                text="❌ ИИ не смог корректно структурировать ответ в JSON. Попробуй еще раз."
             )
 
-        # 🔥 ВОТ ОН — ФИКС ОШИБКИ ВАЛИДАЦИИ ДАННЫХ ИИ 🔥
-        # Принудительно очищаем данные и переводим correct_option_id строго в тип INT
+        # 🔥 ДАЛЬШЕ ИДЕТ ТВОЙ СТАРЫЙ ФИКС С ВАЛИДАЦИЕЙ ТИПОВ ДАННЫХ 🔥
         validated_questions = []
         for q in raw_questions:
             try:
