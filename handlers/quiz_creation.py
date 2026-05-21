@@ -15,7 +15,7 @@ from quizzes.models import TelegramUser
 
 # Твои модули
 from utils.ai_engine import generate_quiz_with_ai
-from utils.db_api import get_user
+from utils.db_api import db
 from utils.states import QuizCreation
 from keyboards.keyboards import (
     get_creation_method_kb, 
@@ -36,7 +36,7 @@ router = Router()
 @router.message(Command("newquiz"))
 @router.message(F.text == "📝 Создать тест")
 async def cmd_new_quiz(message: Message, state: FSMContext):
-    user = await get_user(tg_id=message.from_user.id, username=message.from_user.username)
+    user = await db.get_user(tg_id=message.from_user.id, username=message.from_user.username)
     
     if not user.is_premium and user.free_attempts_left <= 0 and user.balance < 3000:
         await message.answer(
