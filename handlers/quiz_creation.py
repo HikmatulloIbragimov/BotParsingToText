@@ -1,7 +1,7 @@
 import io
 import logging
 import re
-import json  # Добавили стандартный модуль для работы с JSON
+import json
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -9,9 +9,7 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram import types
 from asgiref.sync import sync_to_async  
-
-# Импортируем модель для прямого свежего обращения к БД
-from quizzes.models import TelegramUser  
+from django.db import connections  # Импортируем для очистки коннектов при списании
 
 # Твои модули
 from utils.ai_engine import generate_quiz_with_ai
@@ -22,8 +20,6 @@ from keyboards.keyboards import (
     get_file_action_menu
 )
 
-# Импортируем функции из parsers.py 
-# (parse_text_logic остается здесь, так как он нужен ниже для обработки файлов с готовой разметкой)
 from utils.parsers import (
     extract_text_from_docx as get_raw_text_from_docx, 
     extract_text_from_pdf as get_raw_text_from_pdf, 
@@ -36,6 +32,7 @@ router = Router()
 @router.message(Command("newquiz"))
 @router.message(F.text == "📝 Создать тест")
 async def cmd_new_quiz(message: Message, state: FSMContext):
+    # Вызов строго через объект db
     user = await db.get_user(tg_id=message.from_user.id, username=message.from_user.username)
     
     if not user.is_premium and user.free_attempts_left <= 0 and user.balance < 3000:
@@ -108,25 +105,22 @@ async def handle_document(message: Message, state: FSMContext):
         else:
             raw_text = get_raw_text_from_pdf(file_io)
 
-        # 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: ПРОВЕРКА НА ПРЕДВАРИТЕЛЬНЫЙ ПАРСИНГ ТЕКСТА
         if not raw_text or len(raw_text.strip()) < 20:
             await status_msg.delete()
             await message.answer(
                 "❌ **Ошибка: Не удалось создать из файла нужный тест пак!**\n\n"
-                "Я проверил файл , но там нету нужных информаций*\n\n"
+                "Я проверил файл, но там нет нужной информации.\n\n"
                 "ℹ️ **Возможные причины:**\n"
-                "1. Внутри нету ни вопросов с опциями или без них чтобы ии смог приняться за дело!!\n"
+                "1. Внутри нет ни вопросов с опциями, ни текста лекции, чтобы ИИ смог приняться за дело!\n"
                 "2. Документ зашифрован или поврежден.\n"
                 "⚠️ Пожалуйста, отправьте нормальный текстовый документ с лекцией или вопросами.",
                 parse_mode="Markdown"
             )
-            await state.clear()  # Сбрасываем стейт создания, чтобы не зависать
-            return  # Завершаем хендлер, код ниже (вызов ИИ) НЕ СРАБОТАЕТ!
+            await state.clear()
+            return
 
-        # Если текст нормальный, пробуем искать там готовую разметку (для ручных файлов пользователей)
         questions = parse_text_logic(raw_text)
 
-        # Если печатный текст есть, но разметки нет — вот тогда честно предлагаем ИИ
         if not questions:
             await status_msg.delete()
             await state.update_data(raw_text_for_ai=raw_text)
@@ -155,11 +149,11 @@ async def handle_document(message: Message, state: FSMContext):
                 parse_mode="Markdown"
             )
 
-        # Сохраняем тест в базу данных (если разметка была внутри ручного файла)
         pack = await db.save_quiz_to_db(user, pack_name, questions)
         
-        # Списание средств за готовый файл
-        fresh_user = await sync_to_async(TelegramUser.objects.get)(user_id=message.from_user.id)
+        # 🔥 БЕЗОПАСНОЕ СПИСАНИЕ СРЕДСТВ ЧЕРЕЗ СВЕЖИЙ ЗАПРОС И ОЧИСТКУ КОННЕКТОВ
+        await sync_to_async(connections.close_all)()
+        fresh_user = await db.get_user(tg_id=message.from_user.id)
         if not fresh_user.is_premium:
             if fresh_user.free_attempts_left > 0:
                 fresh_user.free_attempts_left -= 1
@@ -167,6 +161,7 @@ async def handle_document(message: Message, state: FSMContext):
             else:
                 fresh_user.balance -= 3000
                 await message.answer(f"🪙 С баланса списано 3 000 сум. Оставшийся баланс: {fresh_user.balance:,} сум")
+            await sync_to_async(connections.close_all)()
             await sync_to_async(fresh_user.save)()
 
         await status_msg.delete()
@@ -213,19 +208,14 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
         parse_mode="Markdown"
     )
     
-    # Чтобы не ловить ошибки, если сообщение уже удалено
     try:
         await callback.message.delete()
     except Exception:
         pass
     
     try:
-        # 🔥 УМНАЯ ОЧИСТКА И ОБРЕЗКА ПО ВОПРОСАМ (СТРОКАМ) 🔥
         all_lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
-        
-        # Берем только первые 15 вопросов из файла для стабильной генерации
         target_lines = all_lines[:300]
-        
         safe_text = "\n".join(target_lines)
         
         await status_msg.edit_text(
@@ -235,7 +225,6 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
             parse_mode="Markdown"
         )
         
-        # Отправляем этот аккуратный пакет ИИ
         ai_output = await generate_quiz_with_ai(safe_text)
         
         await status_msg.edit_text(
@@ -245,14 +234,9 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
             parse_mode="Markdown"
         )
         
-        # 🔥 ВМЕСТО parse_text_logic ИСПОЛЬЗУЕМ ВСТРОЕННЫЙ JSON ПАРСЕР 🔥
         try:
-            # На случай, если ИИ вопреки запрету обернул JSON в теги ```json ... ```, очищаем их
             clean_output = ai_output.replace("```json", "").replace("```", "").strip()
-            
-            # Превращаем JSON-строку от ИИ сразу в готовый список словарей Python!
             raw_questions = json.loads(clean_output)
-            
             if not isinstance(raw_questions, list):
                 raw_questions = []
         except Exception as json_e:
@@ -269,26 +253,24 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
                 text="❌ ИИ не смог корректно составить вопросы. Попробуй другой файл."
             )
 
-        # 🔥 ВОТ ОН — ФИКС ОШИБКИ ВАЛИДАЦИИ ДАННЫХ ИИ 🔥
-        # Принудительно очищаем данные и переводим correct_option_id строго в тип INT
         validated_questions = []
         for q in raw_questions:
             try:
                 correct_id = int(q.get("correct_option_id", 0))
             except (ValueError, TypeError):
-                correct_id = 0  # Дефолтное значение, если прилетел совсем мусор
+                correct_id = 0
                 
             validated_questions.append({
                 "question": str(q.get("question", ""))[:255].strip(),
                 "options": [str(opt)[:100].strip() for opt in q.get("options", []) if opt],
-                "correct_option_id": correct_id  # Теперь тут железно целое число!
+                "correct_option_id": correct_id
             })
             
-        # Сохраняем уже валидированные и безопасные вопросы в базу
         pack = await db.save_quiz_to_db(user, pack_name, validated_questions)
         
-        # Списание попыток / баланса
-        fresh_user = await sync_to_async(TelegramUser.objects.get)(user_id=callback.from_user.id)
+        # 🔥 БЕЗОПАСНОЕ СПИСАНИЕ СРЕДСТВ ИЗ ИИ ХЕНДЛЕРА
+        await sync_to_async(connections.close_all)()
+        fresh_user = await db.get_user(tg_id=callback.from_user.id)
         if not fresh_user.is_premium:
             if fresh_user.free_attempts_left > 0:
                 fresh_user.free_attempts_left -= 1
@@ -302,6 +284,7 @@ async def process_ai_generation(callback: CallbackQuery, state: FSMContext):
                     chat_id=callback.from_user.id, 
                     text=f"🪙 С баланса списано 3 000 сум. Оставшийся баланс: {fresh_user.balance:,} сум"
                 )
+            await sync_to_async(connections.close_all)()
             await sync_to_async(fresh_user.save)()
 
         try:
